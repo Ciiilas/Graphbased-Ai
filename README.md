@@ -23,6 +23,7 @@ Auf Basis dieses Graphen kann die KI Fragen beantworten wie:
   - [Nicht-Ziele](#nicht-ziele)
 - [Tech Stack](#tech-stack)
 - [Grobe Architektur](#grobe-architektur)
+  - [Projektstruktur](#projektstruktur)
 - [Vision](#vision)
 
 ## Projektfestlegungen
@@ -234,6 +235,23 @@ Warum passend:
 6. LlamaIndex oder LangChain orchestrieren Retrieval und LLM-Aufrufe.
 7. Gemini erzeugt erklärende Antworten.
 8. React visualisiert Graphen, Abhängigkeiten und KI-Antworten.
+
+### Projektstruktur
+
+Das Repository ist in einen Backend- und einen Frontend-Bereich getrennt. Datenbanken und
+Infrastruktur werden über Docker bereitgestellt.
+
+```
+Graphbased-Ai/
+├── backend/    # Python: Tree-sitter-Parsing, Wissensgraph, Vektorsuche, LLM-Orchestrierung, FastAPI
+├── frontend/   # React: Dashboard zur Visualisierung von Graph, Abhängigkeiten und KI-Antworten
+├── README.md   # Projektübersicht (dieses Dokument)
+└── .gitignore
+```
+
+Innerhalb von `backend/` werden Parsing, Graph-Erstellung, Vektorsuche, LLM-Orchestrierung und
+API-Schicht gemäß den [Architekturprinzipien](#architekturprinzipien) modular und getrennt
+aufgebaut.
 
 ## Vision
 
