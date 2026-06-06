@@ -1,8 +1,8 @@
-# Graphbased-AI
+# Graphbased-AI für Scala-Codebases
 
 > **Status:** Konzept- und Aufbauphase. Diese README beschreibt Ziel, Tech-Stack und Architektur des Projekts; die Implementierung befindet sich noch im Aufbau.
 
-Graphbased-AI ist ein KI-System für große Codebases, das Quellcode nicht nur durchsucht, sondern als zusammenhängende Softwarearchitektur versteht. Das Projekt analysiert Code mit Tree-sitter, extrahiert daraus Strukturen wie Dateien, Klassen, Funktionen, Imports, Abhängigkeiten und Aufrufbeziehungen und speichert diese Informationen als Wissensgraph.
+Graphbased-AI ist ein KI-System für große Scala-Codebases, das Quellcode nicht nur durchsucht, sondern als zusammenhängende Softwarearchitektur versteht. Das Projekt ist bewusst auf Scala-Codebases ausgerichtet. Es analysiert Scala-Code mit Tree-sitter, extrahiert daraus Strukturen wie Dateien, Klassen, Traits, Objects, Funktionen, Imports, Abhängigkeiten und Aufrufbeziehungen und speichert diese Informationen als Wissensgraph.
 
 Auf Basis dieses Graphen kann die KI Fragen beantworten wie:
 
@@ -119,7 +119,7 @@ Dieses Projekt wird mit Python im Backend und Node.js im Frontend entwickelt. F�
 
 ## Endziel
 
-Das Endziel ist ein interaktiver KI-Assistent für Softwareprojekte. Entwicklerinnen und Entwickler sollen große oder unbekannte Codebases schneller verstehen, Änderungen sicherer einschätzen und technische Zusammenhänge visuell nachvollziehen können.
+Das Endziel ist ein interaktiver KI-Assistent für Scala-Softwareprojekte. Entwicklerinnen und Entwickler sollen große oder unbekannte Scala-Codebases schneller verstehen, Änderungen sicherer einschätzen und technische Zusammenhänge visuell nachvollziehen können.
 
 Der Assistent kombiniert drei Perspektiven:
 
@@ -133,6 +133,8 @@ Dadurch soll Graphbased-AI nicht nur passende Dateien finden, sondern begründen
 
 Graphbased-AI ist bewusst ein **rein analytisches, lesendes Werkzeug**. Es soll Code verstehen, erklären und Fragen dazu beantworten – aber **nicht selbst Code schreiben oder verändern**.
 
+Das System ist außerdem bewusst auf **Scala-Codebases** beschränkt. Andere Programmiersprachen sind nicht Teil des initialen Projektziels.
+
 - Die KI editiert, refaktoriert oder generiert **keinen** Quellcode in der analysierten Codebase.
 - Die KI nimmt **keine** schreibenden Eingriffe am Projekt vor (keine Commits, keine Dateiänderungen).
 - Der Zugriff auf die Codebase bleibt **read-only**: einlesen, analysieren, Wissensgraph und Embeddings aufbauen, Fragen beantworten.
@@ -141,12 +143,12 @@ Graphbased-AI ist bewusst ein **rein analytisches, lesendes Werkzeug**. Es soll 
 
 ### Tree-sitter
 
-Tree-sitter wird verwendet, um Quellcode sprachübergreifend zu parsen. Es erzeugt konkrete Syntaxbäume und kann dadurch Funktionen, Klassen, Imports, Methodenaufrufe und andere Codeelemente präzise erkennen.
+Tree-sitter wird verwendet, um Scala-Code strukturiert zu parsen. Es erzeugt konkrete Syntaxbäume und kann dadurch Scala-spezifische Codeelemente wie Klassen, Traits, Objects, Funktionen, Imports und Methodenaufrufe präzise erkennen.
 
 Warum passend:
 
-- Unterstützt viele Programmiersprachen.
-- Ist schnell genug für große Codebases.
+- Unterstützt Scala über eine passende Tree-sitter-Grammatik.
+- Ist schnell genug für große Scala-Codebases.
 - Liefert strukturierte Informationen statt reiner Textsuche.
 - Eignet sich gut, um Codeänderungen inkrementell zu analysieren.
 
@@ -227,8 +229,8 @@ Warum passend:
 
 ## Grobe Architektur
 
-1. Codebase wird eingelesen.
-2. Tree-sitter analysiert Dateien und extrahiert Codeelemente.
+1. Scala-Codebase wird eingelesen.
+2. Tree-sitter analysiert Scala-Dateien und extrahiert Codeelemente.
 3. Aus den Ergebnissen entsteht ein Wissensgraph in Neo4j oder NetworkX.
 4. Relevante Codeabschnitte werden zusätzlich als Embeddings in ChromaDB gespeichert.
 5. FastAPI stellt Analyse-, Such- und Chat-Endpunkte bereit.
@@ -255,4 +257,4 @@ aufgebaut.
 
 ## Vision
 
-Graphbased-AI soll ein Werkzeug werden, das Codebases wie ein technischer Architekturpartner erklärt. Statt nur Trefferlisten zu liefern, soll das System Zusammenhänge sichtbar machen, Auswirkungen von Änderungen einschätzen und Entwicklerinnen und Entwicklern helfen, fundierte Entscheidungen in komplexen Softwareprojekten zu treffen.
+Graphbased-AI soll ein Werkzeug werden, das Scala-Codebases wie ein technischer Architekturpartner erklärt. Statt nur Trefferlisten zu liefern, soll das System Zusammenhänge sichtbar machen, Auswirkungen von Änderungen einschätzen und Entwicklerinnen und Entwicklern helfen, fundierte Entscheidungen in komplexen Scala-Softwareprojekten zu treffen.
