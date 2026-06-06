@@ -1,5 +1,29 @@
 # Graphbased-AI
 
+> **Status:** Konzept- und Aufbauphase. Diese README beschreibt Ziel, Tech-Stack und Architektur des Projekts; die Implementierung befindet sich noch im Aufbau.
+
+Graphbased-AI ist ein KI-System für große Codebases, das Quellcode nicht nur durchsucht, sondern als zusammenhängende Softwarearchitektur versteht. Das Projekt analysiert Code mit Tree-sitter, extrahiert daraus Strukturen wie Dateien, Klassen, Funktionen, Imports, Abhängigkeiten und Aufrufbeziehungen und speichert diese Informationen als Wissensgraph.
+
+Auf Basis dieses Graphen kann die KI Fragen beantworten wie:
+
+- Welche Komponenten hängen voneinander ab?
+- Wie läuft ein Request durch das System?
+- Welche Stellen sind betroffen, wenn eine Funktion, API oder Datei geändert wird?
+- Welche Architekturentscheidungen lassen sich aus der Codebase ableiten?
+- Wie lassen sich neue Codeänderungen analysieren, ohne die komplette Codebase erneut einzulesen?
+
+## Inhaltsverzeichnis
+
+- [Projektfestlegungen](#projektfestlegungen)
+  - [Entwicklungsumgebung](#entwicklungsumgebung)
+  - [Python-Regeln](#python-regeln)
+  - [Architekturprinzipien](#architekturprinzipien)
+- [Endziel](#endziel)
+  - [Nicht-Ziele](#nicht-ziele)
+- [Tech Stack](#tech-stack)
+- [Grobe Architektur](#grobe-architektur)
+- [Vision](#vision)
+
 ## Projektfestlegungen
 
 Dieses Projekt wird mit Python im Backend und Node.js im Frontend entwickelt. Für Datenbanken und externe Infrastruktur wird Docker verwendet. Dadurch bleibt die lokale Entwicklungsumgebung schlank, während Neo4j, ChromaDB und weitere Dienste reproduzierbar gestartet werden können.
@@ -16,10 +40,61 @@ Dieses Projekt wird mit Python im Backend und Node.js im Frontend entwickelt. F�
 ### Python-Regeln
 
 - Typen werden explizit angegeben, zum Beispiel bei Funktionsparametern, Rückgabewerten und wichtigen Variablen.
+
+  ```python
+  # Gut: Typen sind klar erkennbar
+  def count_functions(file_path: str) -> int:
+      ...
+
+  # Vermeiden: keine Typangaben
+  def count_functions(file_path):
+      ...
+  ```
+
 - Variablen, Funktionen und Klassen erhalten sinnvolle, beschreibende Namen.
-- Klassen bleiben möglichst klein und haben eine klar abgegrenzte Verantwortung.
-- Eine Klasse soll nicht mehrere fachliche Aufgaben gleichzeitig übernehmen.
+
+  ```python
+  # Gut: der Name erklärt den Zweck
+  imported_modules = extract_imports(source_file)
+
+  # Vermeiden: nichtssagende Namen
+  x = extract_imports(f)
+  ```
+
+- Klassen bleiben möglichst klein und haben eine klar abgegrenzte Verantwortung. Eine Klasse soll nicht mehrere fachliche Aufgaben gleichzeitig übernehmen.
+
+  ```python
+  # Gut: jede Klasse hat eine Aufgabe
+  class TreeSitterParser:
+      def parse(self, source: str) -> SyntaxTree:
+          ...
+
+  class GraphBuilder:
+      def build(self, tree: SyntaxTree) -> Graph:
+          ...
+
+  # Vermeiden: eine Klasse macht Parsing, Graph-Aufbau und DB-Zugriff zugleich
+  class CodeProcessor:
+      def parse(self, source): ...
+      def build_graph(self, tree): ...
+      def save_to_neo4j(self, graph): ...
+  ```
+
 - Komplexe Logik wird in kleinere Funktionen, Services oder Module aufgeteilt.
+
+  ```python
+  # Gut: ein Schritt pro Funktion, leicht testbar
+  def analyze_file(path: str) -> FileAnalysis:
+      tree = parse_source(path)
+      symbols = extract_symbols(tree)
+      return build_analysis(symbols)
+
+  # Vermeiden: eine lange Funktion, die alles auf einmal erledigt
+  def analyze_file(path):
+      # 80 Zeilen Parsing, Extraktion und Aufbereitung gemischt
+      ...
+  ```
+
 - Code soll gut lesbar sein und Architekturentscheidungen nachvollziehbar machen.
 
 ### Architekturprinzipien
@@ -28,16 +103,6 @@ Dieses Projekt wird mit Python im Backend und Node.js im Frontend entwickelt. F�
 - Parsing, Graph-Erstellung, Vektorsuche, LLM-Orchestrierung und API-Schicht werden getrennt behandelt.
 - Jede Komponente soll einzeln testbar und austauschbar sein.
 - Neue Features sollen vorhandene Verantwortlichkeiten respektieren, statt bestehende Klassen unnötig zu vergrößern.
-
-Graphbased-AI ist ein KI-System für große Codebases, das Quellcode nicht nur durchsucht, sondern als zusammenhängende Softwarearchitektur versteht. Das Projekt analysiert Code mit Tree-sitter, extrahiert daraus Strukturen wie Dateien, Klassen, Funktionen, Imports, Abhängigkeiten und Aufrufbeziehungen und speichert diese Informationen als Wissensgraph.
-
-Auf Basis dieses Graphen kann die KI Fragen beantworten wie:
-
-- Welche Komponenten hängen voneinander ab?
-- Wie läuft ein Request durch das System?
-- Welche Stellen sind betroffen, wenn eine Funktion, API oder Datei geändert wird?
-- Welche Architekturentscheidungen lassen sich aus der Codebase ableiten?
-- Welche neuen Codeänderungen müssen analysiert werden, ohne die komplette Codebase erneut einzulesen?
 
 ## Endziel
 
@@ -50,6 +115,14 @@ Der Assistent kombiniert drei Perspektiven:
 3. **Natürlichsprachliche Erklärungen** durch ein LLM.
 
 Dadurch soll Graphbased-AI nicht nur passende Dateien finden, sondern begründen können, warum bestimmte Dateien, Funktionen oder Module relevant sind.
+
+### Nicht-Ziele
+
+Graphbased-AI ist bewusst ein **rein analytisches, lesendes Werkzeug**. Es soll Code verstehen, erklären und Fragen dazu beantworten – aber **nicht selbst Code schreiben oder verändern**.
+
+- Die KI editiert, refaktoriert oder generiert **keinen** Quellcode in der analysierten Codebase.
+- Die KI nimmt **keine** schreibenden Eingriffe am Projekt vor (keine Commits, keine Dateiänderungen).
+- Der Zugriff auf die Codebase bleibt **read-only**: einlesen, analysieren, Wissensgraph und Embeddings aufbauen, Fragen beantworten.
 
 ## Tech Stack
 
@@ -69,6 +142,8 @@ Warum passend:
 Der Wissensgraph kann entweder mit Neo4j oder NetworkX umgesetzt werden.
 
 **Neo4j** eignet sich besonders für eine persistente, abfragbare Graphdatenbank. Beziehungen wie `IMPORTS`, `CALLS`, `DEPENDS_ON`, `DECLARES` oder `MODIFIES` können direkt modelliert und mit Cypher abgefragt werden.
+
+> Hinweis: Diese Beziehungen beschreiben **analysiertes Verhalten im Quellcode** (z. B. „Funktion A ruft Funktion B auf", „Funktion A verändert Zustand C"). `MODIFIES` bezieht sich also auf das, was der analysierte Code tut – nicht darauf, dass Graphbased-AI selbst Code verändert. Das System bleibt read-only (siehe [Nicht-Ziele](#nicht-ziele)).
 
 **NetworkX** eignet sich für Prototyping, lokale Analysen und Algorithmen wie Traversierungen, Zentralitätsberechnungen oder Abhängigkeitsanalysen.
 
