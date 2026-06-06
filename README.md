@@ -1,5 +1,34 @@
 # Graphbased-AI
 
+## Projektfestlegungen
+
+Dieses Projekt wird mit Python im Backend und Node.js im Frontend entwickelt. Für Datenbanken und externe Infrastruktur wird Docker verwendet. Dadurch bleibt die lokale Entwicklungsumgebung schlank, während Neo4j, ChromaDB und weitere Dienste reproduzierbar gestartet werden können.
+
+### Entwicklungsumgebung
+
+- Python und Node.js laufen lokal auf dem Entwicklungssystem.
+- Datenbanken und Infrastrukturkomponenten laufen über Docker.
+- Frameworks und Libraries werden nicht ohne Versionsangabe installiert.
+- Python-Abhängigkeiten müssen in `requirements.txt` mit einer festen Version angegeben werden, zum Beispiel `fastapi==...`.
+- Node.js-Abhängigkeiten müssen in `package.json` mit einer festen Version festgelegt werden.
+- Die konkrete Version wird im Projekt bewusst ausgewählt und dokumentiert, statt automatisch immer die neueste Version zu verwenden.
+
+### Python-Regeln
+
+- Typen werden explizit angegeben, zum Beispiel bei Funktionsparametern, Rückgabewerten und wichtigen Variablen.
+- Variablen, Funktionen und Klassen erhalten sinnvolle, beschreibende Namen.
+- Klassen bleiben möglichst klein und haben eine klar abgegrenzte Verantwortung.
+- Eine Klasse soll nicht mehrere fachliche Aufgaben gleichzeitig übernehmen.
+- Komplexe Logik wird in kleinere Funktionen, Services oder Module aufgeteilt.
+- Code soll gut lesbar sein und Architekturentscheidungen nachvollziehbar machen.
+
+### Architekturprinzipien
+
+- Der Code wird modular aufgebaut.
+- Parsing, Graph-Erstellung, Vektorsuche, LLM-Orchestrierung und API-Schicht werden getrennt behandelt.
+- Jede Komponente soll einzeln testbar und austauschbar sein.
+- Neue Features sollen vorhandene Verantwortlichkeiten respektieren, statt bestehende Klassen unnötig zu vergrößern.
+
 Graphbased-AI ist ein KI-System für große Codebases, das Quellcode nicht nur durchsucht, sondern als zusammenhängende Softwarearchitektur versteht. Das Projekt analysiert Code mit Tree-sitter, extrahiert daraus Strukturen wie Dateien, Klassen, Funktionen, Imports, Abhängigkeiten und Aufrufbeziehungen und speichert diese Informationen als Wissensgraph.
 
 Auf Basis dieses Graphen kann die KI Fragen beantworten wie:
