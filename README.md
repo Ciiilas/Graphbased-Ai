@@ -101,9 +101,13 @@ Dieses Projekt wird mit Python im Backend und Node.js im Frontend entwickelt. F�
 ### Architekturprinzipien
 
 - Der Code wird modular aufgebaut.
+- Das Projekt verwendet eine MVC-Architektur.
+- Model, View und Controller werden klar voneinander getrennt.
 - Parsing, Graph-Erstellung, Vektorsuche, LLM-Orchestrierung und API-Schicht werden getrennt behandelt.
 - Jede Komponente soll einzeln testbar und austauschbar sein.
 - Neue Features sollen vorhandene Verantwortlichkeiten respektieren, statt bestehende Klassen unnötig zu vergrößern.
+- Die Kommunikation zwischen Backend und Frontend erfolgt über JSON.
+- API-Antworten und Requests sollen klar strukturierte JSON-Objekte verwenden.
 
 ### Git-Regeln
 
