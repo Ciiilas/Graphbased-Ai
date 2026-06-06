@@ -18,6 +18,7 @@ Auf Basis dieses Graphen kann die KI Fragen beantworten wie:
   - [Entwicklungsumgebung](#entwicklungsumgebung)
   - [Python-Regeln](#python-regeln)
   - [Architekturprinzipien](#architekturprinzipien)
+  - [Git-Regeln](#git-regeln)
 - [Endziel](#endziel)
   - [Nicht-Ziele](#nicht-ziele)
 - [Tech Stack](#tech-stack)
@@ -103,6 +104,13 @@ Dieses Projekt wird mit Python im Backend und Node.js im Frontend entwickelt. F�
 - Parsing, Graph-Erstellung, Vektorsuche, LLM-Orchestrierung und API-Schicht werden getrennt behandelt.
 - Jede Komponente soll einzeln testbar und austauschbar sein.
 - Neue Features sollen vorhandene Verantwortlichkeiten respektieren, statt bestehende Klassen unnötig zu vergrößern.
+
+### Git-Regeln
+
+- Es darf niemals direkt auf `main` gepusht werden.
+- Änderungen werden immer auf einem eigenen Branch entwickelt.
+- Der Merge in `main` erfolgt ausschließlich über einen Merge Request.
+- Vor dem Merge müssen Änderungen nachvollziehbar beschrieben und geprüft werden.
 
 ## Endziel
 
