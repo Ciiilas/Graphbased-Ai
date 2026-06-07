@@ -105,6 +105,10 @@ volumes/
 !.vscode/tasks.json
 .idea/
 tempCodeRunnerFile.py
+.vscode
+.scala-build/
+.metals/
+.bsp/
 
 # ----------------------------------------------------------------------
 # Operating system files
