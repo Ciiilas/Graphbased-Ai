@@ -77,7 +77,7 @@ class SymbolExtractorTest(unittest.TestCase):
         symbols = SymbolExtractor().extract(
             tree.root_node,
             source_bytes,
-            Path("Sample.scala"),
+            "Sample.scala",
         )
         symbol_pairs = {(symbol.kind, symbol.name) for symbol in symbols}
 
@@ -103,7 +103,7 @@ class SymbolExtractorTest(unittest.TestCase):
         symbols = SymbolExtractor().extract(
             tree.root_node,
             source_bytes,
-            Path("Event.scala"),
+            "Event.scala",
         )
         symbol_pairs = {(symbol.kind, symbol.name) for symbol in symbols}
 
