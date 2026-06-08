@@ -8,6 +8,7 @@ from pathlib import Path
 from backend.extractor.ast_serializer import AstSerializer
 from backend.extractor.cli import ScalaExtractionCli
 from backend.extractor.parser import ScalaTreeSitterParser
+from backend.extractor.relations import RelationExtractor
 from backend.extractor.scanner import ScalaFileScanner
 from backend.extractor.symbols import SymbolExtractor
 
@@ -143,6 +144,113 @@ class SymbolExtractorTest(unittest.TestCase):
         self.assertIn(("var", "enabled"), symbol_pairs)
         self.assertIn(("type", "Name"), symbol_pairs)
         self.assertIn(("given", "ordering"), symbol_pairs)
+
+
+class RelationExtractorTest(unittest.TestCase):
+    def test_extracts_import_extends_calls_and_depends_on(self) -> None:
+        parser = ScalaTreeSitterParser()
+        symbol_extractor = SymbolExtractor()
+        relation_extractor = RelationExtractor()
+        base_source = "package sample\ntrait Base\n"
+        sample_source = (
+            "package sample\n"
+            "import sample.Base\n"
+            "import scala.collection.mutable.ListBuffer\n"
+            "object Sample extends Base {\n"
+            "  def main(): Unit = {\n"
+            "    helper()\n"
+            "    println(\"hello\")\n"
+            "  }\n"
+            "  def helper(): Unit = {}\n"
+            "}\n"
+        )
+        base_bytes = base_source.encode("utf-8")
+        sample_bytes = sample_source.encode("utf-8")
+        base_tree = parser.parse_bytes(base_bytes)
+        sample_tree = parser.parse_bytes(sample_bytes)
+        base_symbols = symbol_extractor.extract(
+            base_tree.root_node,
+            base_bytes,
+            "Base.scala",
+        )
+        sample_symbols = symbol_extractor.extract(
+            sample_tree.root_node,
+            sample_bytes,
+            "Sample.scala",
+        )
+
+        relations = relation_extractor.extract(
+            root_node=sample_tree.root_node,
+            source_bytes=sample_bytes,
+            source_path="Sample.scala",
+            symbols=sample_symbols,
+            all_symbols=[*base_symbols, *sample_symbols],
+        )
+        relation_types = {relation.type for relation in relations}
+        base_symbol = next(symbol for symbol in base_symbols if symbol.kind == "trait")
+        object_symbol = next(symbol for symbol in sample_symbols if symbol.kind == "object")
+        main_symbol = next(
+            symbol for symbol in sample_symbols if symbol.kind == "function" and symbol.name == "main"
+        )
+        helper_symbol = next(
+            symbol for symbol in sample_symbols if symbol.kind == "function" and symbol.name == "helper"
+        )
+
+        self.assertIn("DECLARES", relation_types)
+        self.assertIn("IMPORTS", relation_types)
+        self.assertIn("EXTENDS", relation_types)
+        self.assertIn("CALLS", relation_types)
+        self.assertIn("DEPENDS_ON", relation_types)
+        self.assertTrue(
+            any(
+                relation.type == "DECLARES"
+                and relation.source_id == object_symbol.id
+                and relation.target_id == main_symbol.id
+                for relation in relations
+            )
+        )
+        self.assertTrue(
+            any(
+                relation.type == "IMPORTS" and relation.target_id == base_symbol.id
+                for relation in relations
+            )
+        )
+        self.assertTrue(
+            any(
+                relation.type == "EXTENDS" and relation.target_id == base_symbol.id
+                for relation in relations
+            )
+        )
+        self.assertTrue(
+            any(
+                relation.type == "CALLS"
+                and relation.source_id == main_symbol.id
+                and relation.target_id == helper_symbol.id
+                for relation in relations
+            )
+        )
+        self.assertTrue(
+            any(
+                relation.type == "CALLS"
+                and relation.target_id is None
+                and relation.metadata["callee_name"] == "println"
+                for relation in relations
+            )
+        )
+        self.assertTrue(
+            any(
+                relation.type == "DEPENDS_ON" and relation.target_id == "Base.scala"
+                for relation in relations
+            )
+        )
+        self.assertTrue(
+            any(
+                relation.type == "IMPORTS"
+                and relation.target_kind == "external_import"
+                and relation.metadata["fqn"] == "scala.collection.mutable.ListBuffer"
+                for relation in relations
+            )
+        )
 
 
 class ScalaExtractionCliTest(unittest.TestCase):

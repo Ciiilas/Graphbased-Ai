@@ -6,7 +6,7 @@ import argparse
 import json
 import logging
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -15,6 +15,7 @@ from typing import Any
 from backend.extractor.ast_serializer import AstSerializer
 from backend.extractor.models import ParsedFile
 from backend.extractor.parser import ScalaTreeSitterParser
+from backend.extractor.relations import RelationExtractor
 from backend.extractor.scanner import ScalaFileScanner
 from backend.extractor.symbols import SymbolExtractor
 
@@ -30,6 +31,7 @@ class ScalaExtractionCli:
     parser: ScalaTreeSitterParser
     serializer: AstSerializer
     symbol_extractor: SymbolExtractor
+    relation_extractor: RelationExtractor = field(default_factory=RelationExtractor)
 
     def run(self, source: Path, output: Path, overwrite: bool) -> int:
         source_root: Path = source.resolve()
@@ -42,20 +44,21 @@ class ScalaExtractionCli:
         scala_files: list[Path] = self.scanner.find_scala_files(source_root)
         parsed_count: int = 0
         failed_files: list[dict[str, str]] = []
+        symbols_by_path: dict[str, list] = {}
+        all_symbols: list = []
 
         for scala_file in scala_files:
             relative_path: str = scala_file.relative_to(source_root).as_posix()
-            output_file: Path = files_root / f"{relative_path}.json"
-            output_file.parent.mkdir(parents=True, exist_ok=True)
-
             try:
-                parsed_file: ParsedFile = self._parse_file(
-                    scala_file,
-                    source_root,
+                source_bytes: bytes = scala_file.read_bytes()
+                tree = self.parser.parse_bytes(source_bytes)
+                symbols = self.symbol_extractor.extract(
+                    tree.root_node,
+                    source_bytes,
                     relative_path,
                 )
-                self._write_json(output_file, parsed_file.to_dict())
-                parsed_count += 1
+                symbols_by_path[relative_path] = symbols
+                all_symbols.extend(symbols)
             except Exception as error:
                 logger.exception("Failed to parse Scala file: %s", relative_path)
                 failed_files.append(
@@ -64,6 +67,25 @@ class ScalaExtractionCli:
                         "error": str(error),
                     }
                 )
+
+        failed_paths: set[str] = {
+            failed_file["relative_path"] for failed_file in failed_files
+        }
+        for scala_file in scala_files:
+            relative_path = scala_file.relative_to(source_root).as_posix()
+            if relative_path in failed_paths:
+                continue
+
+            output_file: Path = files_root / f"{relative_path}.json"
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+            parsed_file = self._parse_file(
+                scala_file=scala_file,
+                relative_path=relative_path,
+                symbols=symbols_by_path[relative_path],
+                all_symbols=all_symbols,
+            )
+            self._write_json(output_file, parsed_file.to_dict())
+            parsed_count += 1
 
         manifest: dict[str, Any] = {
             "source_root": str(source_root),
@@ -84,14 +106,19 @@ class ScalaExtractionCli:
     def _parse_file(
         self,
         scala_file: Path,
-        source_root: Path,
         relative_path: str,
+        symbols: list,
+        all_symbols: list,
     ) -> ParsedFile:
         source_bytes: bytes = scala_file.read_bytes()
         tree = self.parser.parse_bytes(source_bytes)
         ast = self.serializer.serialize(tree.root_node, source_bytes)
-        symbols = self.symbol_extractor.extract(
-            tree.root_node, source_bytes, relative_path
+        relations = self.relation_extractor.extract(
+            root_node=tree.root_node,
+            source_bytes=source_bytes,
+            source_path=relative_path,
+            symbols=symbols,
+            all_symbols=all_symbols,
         )
         return ParsedFile(
             relative_path=relative_path,
@@ -99,6 +126,7 @@ class ScalaExtractionCli:
             has_errors=tree.root_node.has_error,
             ast=ast,
             symbols=symbols,
+            relations=relations,
         )
 
     def _prepare_output(self, output_root: Path, overwrite: bool) -> None:
@@ -160,6 +188,7 @@ def main() -> int:
         parser=ScalaTreeSitterParser(),
         serializer=AstSerializer(),
         symbol_extractor=SymbolExtractor(),
+        relation_extractor=RelationExtractor(),
     )
     return cli.run(
         source=arguments.source,
