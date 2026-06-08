@@ -83,10 +83,40 @@ class Neo4jGraphRepositoryTest(unittest.TestCase):
 
         repository.import_parsed_file(parsed_file)
 
-        self.assertEqual(len(connection.writes), 3)
-        self.assertIn("MERGE (file:File", connection.writes[0][0])
-        self.assertIn("MERGE (symbol:Symbol", connection.writes[1][0])
-        self.assertIn("DECLARES", connection.writes[2][0])
+        self.assertEqual(len(connection.writes), 1)
+        query, parameters = connection.writes[0]
+        self.assertIn("MERGE (file:File", query)
+        self.assertIn("UNWIND $symbols", query)
+        self.assertIn("MERGE (node:Symbol", query)
+        self.assertIn("DECLARES", query)
+
+        assert parameters is not None
+        self.assertEqual(parameters["relative_path"], "src/main/scala/Sample.scala")
+        self.assertEqual(len(parameters["symbols"]), 1)
+        symbol_row = parameters["symbols"][0]
+        self.assertEqual(symbol_row["kind"], "object")
+        self.assertEqual(symbol_row["name"], "Sample")
+        self.assertEqual(
+            symbol_row["id"],
+            "C:/project/src/main/scala/Sample.scala:object:Sample:0:13",
+        )
+
+    def test_import_parsed_file_without_symbols_writes_only_file(self) -> None:
+        connection = FakeConnection()
+        repository = Neo4jGraphRepository(connection)
+        parsed_file = {
+            "relative_path": "Empty.scala",
+            "absolute_path": "C:/project/Empty.scala",
+            "has_errors": False,
+            "symbols": [],
+        }
+
+        repository.import_parsed_file(parsed_file)
+
+        self.assertEqual(len(connection.writes), 1)
+        _, parameters = connection.writes[0]
+        assert parameters is not None
+        self.assertEqual(parameters["symbols"], [])
 
 
 class AstJsonImporterTest(unittest.TestCase):

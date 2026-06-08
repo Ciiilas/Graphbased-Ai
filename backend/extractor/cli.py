@@ -90,7 +90,9 @@ class ScalaExtractionCli:
         source_bytes: bytes = scala_file.read_bytes()
         tree = self.parser.parse_bytes(source_bytes)
         ast = self.serializer.serialize(tree.root_node, source_bytes)
-        symbols = self.symbol_extractor.extract(tree.root_node, source_bytes, scala_file)
+        symbols = self.symbol_extractor.extract(
+            tree.root_node, source_bytes, relative_path
+        )
         return ParsedFile(
             relative_path=relative_path,
             absolute_path=scala_file.resolve(),

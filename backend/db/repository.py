@@ -38,70 +38,49 @@ class Neo4jGraphRepository:
             self.connection.execute_write(constraint)
 
     def import_parsed_file(self, parsed_file: dict[str, Any]) -> None:
-        relative_path: str = parsed_file["relative_path"]
-        self.upsert_file(
-            relative_path=relative_path,
-            absolute_path=parsed_file["absolute_path"],
-            has_errors=parsed_file["has_errors"],
-        )
+        """Write one file node plus all its symbols in a single transaction.
 
-        for symbol in parsed_file.get("symbols", []):
-            symbol_id: str = self._symbol_id(symbol)
-            self.upsert_symbol(symbol_id, symbol)
-            self.link_file_to_symbol(relative_path, symbol_id)
-
-    def upsert_file(
-        self,
-        relative_path: str,
-        absolute_path: str,
-        has_errors: bool,
-    ) -> None:
+        Using ``UNWIND`` keeps the import to one round-trip per file instead of
+        ``1 + 2 * symbols``, which matters for large Scala codebases. The file
+        node is created even when ``symbols`` is empty, because the file ``MERGE``
+        runs before the ``UNWIND``.
+        """
+        symbol_rows: list[dict[str, Any]] = [
+            self._symbol_row(symbol) for symbol in parsed_file.get("symbols", [])
+        ]
         self.connection.execute_write(
             """
             MERGE (file:File {path: $relative_path})
             SET file.absolute_path = $absolute_path,
                 file.has_errors = $has_errors
+            WITH file
+            UNWIND $symbols AS symbol
+            MERGE (node:Symbol {id: symbol.id})
+            SET node.kind = symbol.kind,
+                node.name = symbol.name,
+                node.source_path = symbol.source_path,
+                node.start_byte = symbol.start_byte,
+                node.end_byte = symbol.end_byte
+            MERGE (file)-[:DECLARES]->(node)
             """,
             {
-                "relative_path": relative_path,
-                "absolute_path": absolute_path,
-                "has_errors": has_errors,
+                "relative_path": parsed_file["relative_path"],
+                "absolute_path": parsed_file["absolute_path"],
+                "has_errors": parsed_file["has_errors"],
+                "symbols": symbol_rows,
             },
         )
 
-    def upsert_symbol(self, symbol_id: str, symbol: dict[str, Any]) -> None:
+    def _symbol_row(self, symbol: dict[str, Any]) -> dict[str, Any]:
         symbol_range: dict[str, Any] = symbol["range"]
-        self.connection.execute_write(
-            """
-            MERGE (symbol:Symbol {id: $symbol_id})
-            SET symbol.kind = $kind,
-                symbol.name = $name,
-                symbol.source_path = $source_path,
-                symbol.start_byte = $start_byte,
-                symbol.end_byte = $end_byte
-            """,
-            {
-                "symbol_id": symbol_id,
-                "kind": symbol["kind"],
-                "name": symbol["name"],
-                "source_path": symbol["source_path"],
-                "start_byte": symbol_range["start_byte"],
-                "end_byte": symbol_range["end_byte"],
-            },
-        )
-
-    def link_file_to_symbol(self, relative_path: str, symbol_id: str) -> None:
-        self.connection.execute_write(
-            """
-            MATCH (file:File {path: $relative_path})
-            MATCH (symbol:Symbol {id: $symbol_id})
-            MERGE (file)-[:DECLARES]->(symbol)
-            """,
-            {
-                "relative_path": relative_path,
-                "symbol_id": symbol_id,
-            },
-        )
+        return {
+            "id": self._symbol_id(symbol),
+            "kind": symbol["kind"],
+            "name": symbol["name"],
+            "source_path": symbol["source_path"],
+            "start_byte": symbol_range["start_byte"],
+            "end_byte": symbol_range["end_byte"],
+        }
 
     def _symbol_id(self, symbol: dict[str, Any]) -> str:
         symbol_range: dict[str, Any] = symbol["range"]

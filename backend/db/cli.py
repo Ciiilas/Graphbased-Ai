@@ -47,6 +47,7 @@ def main() -> int:
             return 0
 
         if arguments.command == "import-ast":
+            repository.create_constraints()
             importer = AstJsonImporter(repository)
             summary = importer.import_directory(arguments.ast_root)
             print(json.dumps(summary.to_dict(), ensure_ascii=False, indent=2))

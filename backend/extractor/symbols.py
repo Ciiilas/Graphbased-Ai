@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from tree_sitter import Node
@@ -29,17 +28,19 @@ class SymbolExtractor:
         self,
         root_node: Node,
         source_bytes: bytes,
-        source_path: Path,
+        source_path: str,
     ) -> list[ScalaSymbol]:
+        """Extract symbols. ``source_path`` should be the file's relative POSIX
+        path so symbol ``source_path`` matches the graph's ``File.path``."""
         symbols: list[ScalaSymbol] = []
         package_symbol: ScalaSymbol | None = self._extract_package(
             root_node,
             source_bytes,
-            str(source_path),
+            source_path,
         )
         if package_symbol is not None:
             symbols.append(package_symbol)
-        self._visit(root_node, source_bytes, str(source_path), symbols)
+        self._visit(root_node, source_bytes, source_path, symbols)
         return symbols
 
     def _extract_package(
