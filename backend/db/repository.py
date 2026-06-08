@@ -51,8 +51,13 @@ class Neo4jGraphRepository:
     def import_parsed_file(self, parsed_file: dict[str, Any]) -> None:
         """Write one parsed file document into Neo4j."""
 
+        # ``import`` symbols are an extraction-time intermediate used to build
+        # IMPORTS relations; they are never linked in the graph, so persisting
+        # them would only create orphan nodes. Imports live as IMPORTS edges.
         symbol_rows: list[dict[str, Any]] = [
-            self._symbol_row(symbol) for symbol in parsed_file.get("symbols", [])
+            self._symbol_row(symbol)
+            for symbol in parsed_file.get("symbols", [])
+            if symbol.get("kind") != "import"
         ]
         relation_rows: list[dict[str, Any]] = [
             self._relation_row(relation)

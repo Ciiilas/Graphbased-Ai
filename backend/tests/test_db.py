@@ -148,6 +148,45 @@ class Neo4jGraphRepositoryTest(unittest.TestCase):
         self.assertIn("Call", connection.writes[7][0])
         self.assertIn("DEPENDS_ON", connection.writes[8][0])
 
+    def test_import_symbols_are_not_persisted_as_nodes(self) -> None:
+        connection = FakeConnection()
+        repository = Neo4jGraphRepository(connection)
+        parsed_file = {
+            "relative_path": "Sample.scala",
+            "absolute_path": "C:/project/Sample.scala",
+            "has_errors": False,
+            "symbols": [
+                {
+                    "kind": "import",
+                    "name": "scala.Option",
+                    "id": "Sample.scala:import:scala.Option:0:18",
+                    "fqn": "scala.Option",
+                    "parent_id": None,
+                    "metadata": {},
+                    "source_path": "Sample.scala",
+                    "range": {"start_byte": 0, "end_byte": 18},
+                },
+                {
+                    "kind": "object",
+                    "name": "Sample",
+                    "id": "Sample.scala:object:Sample:20:33",
+                    "fqn": "Sample",
+                    "parent_id": None,
+                    "metadata": {},
+                    "source_path": "Sample.scala",
+                    "range": {"start_byte": 20, "end_byte": 33},
+                },
+            ],
+            "relations": [],
+        }
+
+        repository.import_parsed_file(parsed_file)
+
+        _, parameters = connection.writes[0]
+        assert parameters is not None
+        written_kinds = [symbol["kind"] for symbol in parameters["symbols"]]
+        self.assertEqual(written_kinds, ["object"])
+
     def test_import_parsed_file_without_symbols_writes_only_file(self) -> None:
         connection = FakeConnection()
         repository = Neo4jGraphRepository(connection)
