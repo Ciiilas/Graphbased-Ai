@@ -252,6 +252,43 @@ class RelationExtractorTest(unittest.TestCase):
             )
         )
 
+    def test_extends_generic_internal_type_resolves_to_symbol(self) -> None:
+        parser = ScalaTreeSitterParser()
+        symbol_extractor = SymbolExtractor()
+        relation_extractor = RelationExtractor()
+        base_source = "package sample\ntrait Command[A]\n"
+        sample_source = (
+            "package sample\n"
+            "class SetCommand extends Command[Game]\n"
+        )
+        base_bytes = base_source.encode("utf-8")
+        sample_bytes = sample_source.encode("utf-8")
+        base_tree = parser.parse_bytes(base_bytes)
+        sample_tree = parser.parse_bytes(sample_bytes)
+        base_symbols = symbol_extractor.extract(base_tree.root_node, base_bytes, "Command.scala")
+        sample_symbols = symbol_extractor.extract(sample_tree.root_node, sample_bytes, "SetCommand.scala")
+
+        relations = relation_extractor.extract(
+            root_node=sample_tree.root_node,
+            source_bytes=sample_bytes,
+            source_path="SetCommand.scala",
+            symbols=sample_symbols,
+            all_symbols=[*base_symbols, *sample_symbols],
+        )
+        command_symbol = next(symbol for symbol in base_symbols if symbol.kind == "trait")
+
+        extends_relations = [relation for relation in relations if relation.type == "EXTENDS"]
+        self.assertTrue(
+            any(
+                relation.target_kind == "symbol"
+                and relation.target_id == command_symbol.id
+                for relation in extends_relations
+            )
+        )
+        self.assertFalse(
+            any(relation.target_kind == "external_import" for relation in extends_relations)
+        )
+
 
 class ScalaExtractionCliTest(unittest.TestCase):
     def test_cli_writes_manifest_and_file_json(self) -> None:

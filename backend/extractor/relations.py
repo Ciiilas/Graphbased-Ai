@@ -304,10 +304,28 @@ class RelationExtractor:
 
     def _extends_targets(self, extends_clause: Node, source_bytes: bytes) -> list[str]:
         targets: list[str] = []
-        for child in extends_clause.children:
-            if child.type in {"type_identifier", "generic_type", "scoped_type_identifier"}:
-                targets.append(self._node_text(child, source_bytes))
+        for child in extends_clause.children_by_field_name("type"):
+            if not child.is_named:
+                continue
+            targets.append(self._base_type_name(child, source_bytes))
         return targets
+
+    def _base_type_name(self, node: Node, source_bytes: bytes) -> str:
+        """Return the bare supertype name, dropping type arguments.
+
+        ``Command[gameInterface]`` (a ``generic_type``) resolves to ``Command``
+        so a parametrized internal supertype is matched against the symbol index
+        instead of being treated as an external import.
+        """
+        if node.type == "generic_type":
+            for child in node.children:
+                if child.type in {
+                    "type_identifier",
+                    "stable_type_identifier",
+                    "generic_type",
+                }:
+                    return self._base_type_name(child, source_bytes)
+        return self._node_text(node, source_bytes)
 
     def _resolve_type(
         self,
