@@ -1,0 +1,3 @@
+FROM neo4j:2026.05.0-community
+
+EXPOSE 7474 7687
