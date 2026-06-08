@@ -70,17 +70,47 @@ class AstNode:
 class ScalaSymbol:
     """Basic symbol extracted from a Scala AST."""
 
+    id: str
     kind: str
     name: str
     range: SourceRange
     source_path: str
+    fqn: str | None = None
+    parent_id: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "id": self.id,
             "kind": self.kind,
             "name": self.name,
             "range": self.range.to_dict(),
             "source_path": self.source_path,
+            "fqn": self.fqn,
+            "parent_id": self.parent_id,
+            "metadata": self.metadata,
+        }
+
+
+@dataclass(frozen=True)
+class ScalaRelation:
+    """Graph relation extracted from Scala source."""
+
+    type: str
+    source_id: str
+    target_id: str | None
+    source_path: str
+    target_kind: str = "symbol"
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "type": self.type,
+            "source_id": self.source_id,
+            "target_id": self.target_id,
+            "source_path": self.source_path,
+            "target_kind": self.target_kind,
+            "metadata": self.metadata,
         }
 
 
@@ -93,6 +123,7 @@ class ParsedFile:
     has_errors: bool
     ast: AstNode
     symbols: list[ScalaSymbol]
+    relations: list[ScalaRelation] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -101,4 +132,5 @@ class ParsedFile:
             "has_errors": self.has_errors,
             "ast": self.ast.to_dict(),
             "symbols": [symbol.to_dict() for symbol in self.symbols],
+            "relations": [relation.to_dict() for relation in self.relations],
         }

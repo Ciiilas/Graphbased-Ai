@@ -86,6 +86,12 @@ class SymbolExtractorTest(unittest.TestCase):
         self.assertIn(("package", "de.htwg.se.muehle"), symbol_pairs)
         self.assertTrue(any(symbol.kind == "import" for symbol in symbols))
 
+        object_symbol = next(symbol for symbol in symbols if symbol.kind == "object")
+        function_symbol = next(symbol for symbol in symbols if symbol.kind == "function")
+        self.assertEqual(object_symbol.fqn, "de.htwg.se.muehle.Sample")
+        self.assertEqual(function_symbol.fqn, "de.htwg.se.muehle.Sample.main")
+        self.assertEqual(function_symbol.parent_id, object_symbol.id)
+
     def test_extract_merges_chained_packages_and_finds_enum(self) -> None:
         source = (
             "package de.htwg.se\n"
@@ -111,6 +117,32 @@ class SymbolExtractorTest(unittest.TestCase):
         self.assertIn(("enum", "Event"), symbol_pairs)
         package_symbols = [symbol for symbol in symbols if symbol.kind == "package"]
         self.assertEqual(len(package_symbols), 1)
+
+    def test_extract_finds_field_type_and_given_symbols(self) -> None:
+        source = (
+            "package sample\n"
+            "object Config {\n"
+            "  val answer: Int = 42\n"
+            "  var enabled = true\n"
+            "  type Name = String\n"
+            "  given ordering: Ordering[String] = null\n"
+            "}\n"
+        )
+        parser = ScalaTreeSitterParser()
+        source_bytes = source.encode("utf-8")
+        tree = parser.parse_bytes(source_bytes)
+
+        symbols = SymbolExtractor().extract(
+            tree.root_node,
+            source_bytes,
+            "Config.scala",
+        )
+        symbol_pairs = {(symbol.kind, symbol.name) for symbol in symbols}
+
+        self.assertIn(("val", "answer"), symbol_pairs)
+        self.assertIn(("var", "enabled"), symbol_pairs)
+        self.assertIn(("type", "Name"), symbol_pairs)
+        self.assertIn(("given", "ordering"), symbol_pairs)
 
 
 class ScalaExtractionCliTest(unittest.TestCase):
