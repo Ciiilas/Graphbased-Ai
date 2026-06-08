@@ -28,6 +28,11 @@ def build_argument_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Extractor output root containing manifest.json and files/.",
     )
+    import_parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="Delete all existing nodes and relationships before importing.",
+    )
 
     return argument_parser
 
@@ -47,6 +52,9 @@ def main() -> int:
             return 0
 
         if arguments.command == "import-ast":
+            if arguments.reset:
+                repository.clear_graph()
+                print("Existing graph cleared.")
             repository.create_constraints()
             importer = AstJsonImporter(repository)
             summary = importer.import_directory(arguments.ast_root)

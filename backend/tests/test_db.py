@@ -51,6 +51,15 @@ class Neo4jSettingsTest(unittest.TestCase):
 
 
 class Neo4jGraphRepositoryTest(unittest.TestCase):
+    def test_clear_graph_detaches_and_deletes_all_nodes(self) -> None:
+        connection = FakeConnection()
+        repository = Neo4jGraphRepository(connection)
+
+        repository.clear_graph()
+
+        self.assertEqual(len(connection.writes), 1)
+        self.assertIn("DETACH DELETE", connection.writes[0][0])
+
     def test_create_constraints_writes_file_and_symbol_constraints(self) -> None:
         connection = FakeConnection()
         repository = Neo4jGraphRepository(connection)

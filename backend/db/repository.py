@@ -22,6 +22,15 @@ class Neo4jGraphRepository:
 
     connection: WriteConnection
 
+    def clear_graph(self) -> None:
+        """Remove all nodes and relationships.
+
+        The Neo4j instance is dedicated to this tool, so a full wipe gives a
+        clean slate before a re-import and avoids mixing data from earlier
+        extractor runs or schema versions (additive MERGE never deletes).
+        """
+        self.connection.execute_write("MATCH (n) DETACH DELETE n")
+
     def create_constraints(self) -> None:
         constraints: list[str] = [
             """
