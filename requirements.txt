@@ -1,2 +1,4 @@
 tree-sitter==0.25.2
 tree-sitter-scala==0.26.0
+neo4j==6.2.0
+pytz==2026.2
