@@ -62,8 +62,9 @@ class AstSerializerTest(unittest.TestCase):
         data = ast.to_dict()
 
         self.assertIn("type", data)
-        self.assertIn("start_point", data)
-        self.assertIn("end_point", data)
+        self.assertIn("range", data)
+        self.assertIn("start_point", data["range"])
+        self.assertIn("end_point", data["range"])
         self.assertGreater(len(data["children"]), 0)
 
 
@@ -84,6 +85,32 @@ class SymbolExtractorTest(unittest.TestCase):
         self.assertIn(("function", "main"), symbol_pairs)
         self.assertIn(("package", "de.htwg.se.muehle"), symbol_pairs)
         self.assertTrue(any(symbol.kind == "import" for symbol in symbols))
+
+    def test_extract_merges_chained_packages_and_finds_enum(self) -> None:
+        source = (
+            "package de.htwg.se\n"
+            "package muehle\n"
+            "package util\n"
+            "\n"
+            "enum Event:\n"
+            "  case Set\n"
+            "  case GameOver\n"
+        )
+        parser = ScalaTreeSitterParser()
+        source_bytes = source.encode("utf-8")
+        tree = parser.parse_bytes(source_bytes)
+
+        symbols = SymbolExtractor().extract(
+            tree.root_node,
+            source_bytes,
+            Path("Event.scala"),
+        )
+        symbol_pairs = {(symbol.kind, symbol.name) for symbol in symbols}
+
+        self.assertIn(("package", "de.htwg.se.muehle.util"), symbol_pairs)
+        self.assertIn(("enum", "Event"), symbol_pairs)
+        package_symbols = [symbol for symbol in symbols if symbol.kind == "package"]
+        self.assertEqual(len(package_symbols), 1)
 
 
 class ScalaExtractionCliTest(unittest.TestCase):

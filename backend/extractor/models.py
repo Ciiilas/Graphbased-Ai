@@ -40,6 +40,10 @@ class SourceRange:
 class AstNode:
     """JSON-ready AST node."""
 
+    # NOTE: ``id`` is Tree-sitter's per-parse node identity (a pointer-based
+    # value). It is unique within a single parsed tree but NOT stable across
+    # runs or edits. Do not use it as a knowledge-graph node key; derive a
+    # stable id from (relative_path, byte range, type) in the graph step.
     id: int
     type: str
     named: bool
@@ -53,10 +57,7 @@ class AstNode:
             "id": self.id,
             "type": self.type,
             "named": self.named,
-            "start_byte": self.range.start_byte,
-            "end_byte": self.range.end_byte,
-            "start_point": self.range.start_point.to_dict(),
-            "end_point": self.range.end_point.to_dict(),
+            "range": self.range.to_dict(),
             "field_name": self.field_name,
             "children": [child.to_dict() for child in self.children],
         }

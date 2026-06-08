@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import shutil
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -16,6 +17,9 @@ from backend.extractor.models import ParsedFile
 from backend.extractor.parser import ScalaTreeSitterParser
 from backend.extractor.scanner import ScalaFileScanner
 from backend.extractor.symbols import SymbolExtractor
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -53,6 +57,7 @@ class ScalaExtractionCli:
                 self._write_json(output_file, parsed_file.to_dict())
                 parsed_count += 1
             except Exception as error:
+                logger.exception("Failed to parse Scala file: %s", relative_path)
                 failed_files.append(
                     {
                         "relative_path": relative_path,
