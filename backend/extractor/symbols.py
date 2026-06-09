@@ -17,10 +17,19 @@ SYMBOL_NODE_TYPES: dict[str, str] = {
     "trait_definition": "trait",
     "enum_definition": "enum",
     "function_definition": "function",
+    # Abstract members in traits/interfaces are ``*_declaration`` nodes (no body).
+    # They define the contract that calls through an interface type resolve to.
+    "function_declaration": "function",
     "val_definition": "val",
+    "val_declaration": "val",
     "var_definition": "var",
+    "var_declaration": "var",
     "type_definition": "type",
+    "type_declaration": "type",
     "given_definition": "given",
+    "given_declaration": "given",
+    "simple_enum_case": "enum_case",
+    "full_enum_case": "enum_case",
 }
 
 OWNER_KINDS: frozenset[str] = frozenset({"object", "class", "trait", "enum"})
@@ -199,7 +208,33 @@ class SymbolExtractor:
             symbol_type: Node | None = node.child_by_field_name("type")
             if symbol_type is not None:
                 metadata["type"] = self._node_text(symbol_type, source_bytes)
+        if kind in OWNER_KINDS:
+            supertypes: list[str] = self._supertype_names(node, source_bytes)
+            if supertypes:
+                metadata["supertypes"] = supertypes
         return metadata
+
+    def _supertype_names(self, node: Node, source_bytes: bytes) -> list[str]:
+        extends_clause: Node | None = node.child_by_field_name("extend")
+        if extends_clause is None:
+            return []
+        names: list[str] = []
+        for child in extends_clause.children_by_field_name("type"):
+            if child.is_named:
+                names.append(self._base_type_name(child, source_bytes))
+        return names
+
+    def _base_type_name(self, node: Node, source_bytes: bytes) -> str:
+        """Return the bare type name, dropping type arguments (``A[B]`` -> ``A``)."""
+        if node.type == "generic_type":
+            for child in node.children:
+                if child.type in {
+                    "type_identifier",
+                    "stable_type_identifier",
+                    "generic_type",
+                }:
+                    return self._base_type_name(child, source_bytes)
+        return self._node_text(node, source_bytes)
 
     def _symbol_id(
         self,

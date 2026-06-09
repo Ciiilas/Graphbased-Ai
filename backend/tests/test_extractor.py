@@ -145,6 +145,34 @@ class SymbolExtractorTest(unittest.TestCase):
         self.assertIn(("type", "Name"), symbol_pairs)
         self.assertIn(("given", "ordering"), symbol_pairs)
 
+    def test_extract_finds_enum_cases_with_fqn(self) -> None:
+        source = "package sample\nenum Color:\n  case Red\n  case Green\n"
+        parser = ScalaTreeSitterParser()
+        source_bytes = source.encode("utf-8")
+        tree = parser.parse_bytes(source_bytes)
+
+        symbols = SymbolExtractor().extract(tree.root_node, source_bytes, "Color.scala")
+        enum_cases = {
+            symbol.name: symbol for symbol in symbols if symbol.kind == "enum_case"
+        }
+        enum_symbol = next(symbol for symbol in symbols if symbol.kind == "enum")
+
+        self.assertEqual(set(enum_cases), {"Red", "Green"})
+        self.assertEqual(enum_cases["Red"].fqn, "sample.Color.Red")
+        self.assertEqual(enum_cases["Red"].parent_id, enum_symbol.id)
+
+    def test_extract_finds_abstract_trait_members(self) -> None:
+        source = "package sample\ntrait Repo:\n  def find(): Int\n  val name: String\n"
+        parser = ScalaTreeSitterParser()
+        source_bytes = source.encode("utf-8")
+        tree = parser.parse_bytes(source_bytes)
+
+        symbols = SymbolExtractor().extract(tree.root_node, source_bytes, "Repo.scala")
+        symbol_pairs = {(symbol.kind, symbol.name) for symbol in symbols}
+
+        self.assertIn(("function", "find"), symbol_pairs)
+        self.assertIn(("val", "name"), symbol_pairs)
+
 
 class RelationExtractorTest(unittest.TestCase):
     def test_extracts_import_extends_calls_and_depends_on(self) -> None:
@@ -287,6 +315,280 @@ class RelationExtractorTest(unittest.TestCase):
         )
         self.assertFalse(
             any(relation.target_kind == "external_import" for relation in extends_relations)
+        )
+
+    def _extract_single_file(self, source: str, source_path: str):
+        parser = ScalaTreeSitterParser()
+        symbol_extractor = SymbolExtractor()
+        relation_extractor = RelationExtractor()
+        source_bytes = source.encode("utf-8")
+        tree = parser.parse_bytes(source_bytes)
+        symbols = symbol_extractor.extract(tree.root_node, source_bytes, source_path)
+        relations = relation_extractor.extract(
+            root_node=tree.root_node,
+            source_bytes=source_bytes,
+            source_path=source_path,
+            symbols=symbols,
+            all_symbols=symbols,
+        )
+        return symbols, relations
+
+    def test_instantiates_resolves_internal_and_marks_external(self) -> None:
+        source = (
+            "package sample\n"
+            "class Widget\n"
+            "object App {\n"
+            "  val w = new Widget\n"
+            "  def make(): Unit = { val x = new Missing() }\n"
+            "}\n"
+        )
+        symbols, relations = self._extract_single_file(source, "App.scala")
+        widget_symbol = next(s for s in symbols if s.kind == "class" and s.name == "Widget")
+        w_val = next(s for s in symbols if s.kind == "val" and s.name == "w")
+        instantiates = [r for r in relations if r.type == "INSTANTIATES"]
+
+        self.assertTrue(
+            any(
+                r.target_kind == "symbol"
+                and r.target_id == widget_symbol.id
+                and r.source_id == w_val.id
+                for r in instantiates
+            )
+        )
+        self.assertTrue(
+            any(
+                r.target_kind == "external_import" and r.metadata["type_name"] == "Missing"
+                for r in instantiates
+            )
+        )
+
+    def test_paren_free_call_resolves_and_is_flagged(self) -> None:
+        source = (
+            "package sample\n"
+            "object Service {\n"
+            "  def run(): Unit = {}\n"
+            "}\n"
+            "object Client {\n"
+            "  def go(): Unit = {\n"
+            "    Service.run\n"
+            "    config.value\n"
+            "  }\n"
+            "}\n"
+        )
+        symbols, relations = self._extract_single_file(source, "Service.scala")
+        run_symbol = next(s for s in symbols if s.kind == "function" and s.name == "run")
+        calls = [r for r in relations if r.type == "CALLS"]
+
+        self.assertTrue(
+            any(
+                r.metadata.get("paren_free") is True
+                and r.target_kind == "symbol"
+                and r.target_id == run_symbol.id
+                for r in calls
+            )
+        )
+        self.assertTrue(
+            any(
+                r.metadata.get("paren_free") is True
+                and r.metadata["callee_name"] == "value"
+                and r.target_id is None
+                and r.target_kind == "call"
+                for r in calls
+            )
+        )
+
+    def test_call_in_val_initializer_is_attributed_to_enclosing_symbol(self) -> None:
+        source = (
+            "package sample\n"
+            "object App {\n"
+            "  val n = compute()\n"
+            "  def compute(): Int = 0\n"
+            "}\n"
+        )
+        symbols, relations = self._extract_single_file(source, "App.scala")
+        n_val = next(s for s in symbols if s.kind == "val" and s.name == "n")
+        compute_symbol = next(s for s in symbols if s.kind == "function" and s.name == "compute")
+
+        self.assertTrue(
+            any(
+                r.type == "CALLS"
+                and r.source_id == n_val.id
+                and r.target_id == compute_symbol.id
+                for r in relations
+            )
+        )
+
+    def test_uses_links_signature_types_to_symbols(self) -> None:
+        source = (
+            "package sample\n"
+            "trait Repo\n"
+            "class Service(repo: Repo) {\n"
+            "  def find(): Repo = ???\n"
+            "}\n"
+        )
+        symbols, relations = self._extract_single_file(source, "Service.scala")
+        repo_symbol = next(s for s in symbols if s.kind == "trait" and s.name == "Repo")
+        service_symbol = next(s for s in symbols if s.kind == "class" and s.name == "Service")
+        find_symbol = next(s for s in symbols if s.kind == "function" and s.name == "find")
+        uses = [r for r in relations if r.type == "USES"]
+
+        self.assertTrue(
+            any(
+                r.source_id == service_symbol.id and r.target_id == repo_symbol.id
+                for r in uses
+            )
+        )
+        self.assertTrue(
+            any(
+                r.source_id == find_symbol.id and r.target_id == repo_symbol.id
+                for r in uses
+            )
+        )
+
+    def test_call_resolves_via_receiver_field_type(self) -> None:
+        source = (
+            "package p\n"
+            "trait Repo:\n"
+            "  def find(): Int\n"
+            "class Service(repo: Repo):\n"
+            "  def run(): Int = repo.find()\n"
+        )
+        symbols, relations = self._extract_single_file(source, "Service.scala")
+        find_symbol = next(s for s in symbols if s.name == "find")
+
+        self.assertTrue(
+            any(
+                r.type == "CALLS"
+                and r.metadata["callee_name"] == "find"
+                and r.target_id == find_symbol.id
+                for r in relations
+            )
+        )
+
+    def test_call_resolves_inherited_method(self) -> None:
+        source = (
+            "package p\n"
+            "trait Base:\n"
+            "  def hello(): Unit\n"
+            "class Impl extends Base:\n"
+            "  def go(): Unit = hello()\n"
+        )
+        symbols, relations = self._extract_single_file(source, "Impl.scala")
+        hello_symbol = next(s for s in symbols if s.name == "hello")
+
+        self.assertTrue(
+            any(
+                r.type == "CALLS"
+                and r.metadata["callee_name"] == "hello"
+                and r.target_id == hello_symbol.id
+                for r in relations
+            )
+        )
+
+    def test_chained_receiver_call_resolves(self) -> None:
+        source = (
+            "package p\n"
+            "trait B:\n"
+            "  def c(): Int\n"
+            "trait A:\n"
+            "  def b: B\n"
+            "class U(a: A):\n"
+            "  def run(): Int = a.b.c()\n"
+        )
+        symbols, relations = self._extract_single_file(source, "U.scala")
+        c_symbol = next(s for s in symbols if s.name == "c")
+
+        self.assertTrue(
+            any(
+                r.type == "CALLS"
+                and r.metadata["callee_name"] == "c"
+                and r.target_id == c_symbol.id
+                for r in relations
+            )
+        )
+
+    def test_enum_case_reference_resolves(self) -> None:
+        source = (
+            "package p\n"
+            "enum Color:\n"
+            "  case Red\n"
+            "object App:\n"
+            "  def pick(): Color = Color.Red\n"
+        )
+        symbols, relations = self._extract_single_file(source, "App.scala")
+        red_symbol = next(s for s in symbols if s.kind == "enum_case" and s.name == "Red")
+
+        self.assertTrue(
+            any(
+                r.type == "CALLS"
+                and r.metadata["callee_name"] == "Red"
+                and r.target_id == red_symbol.id
+                for r in relations
+            )
+        )
+
+    def test_call_resolves_to_unique_implementation_member(self) -> None:
+        source = (
+            "package p\n"
+            "trait Repo\n"
+            "class SqlRepo extends Repo:\n"
+            "  def find(): Int = 1\n"
+            "class Service(repo: Repo):\n"
+            "  def run(): Int = repo.find()\n"
+        )
+        symbols, relations = self._extract_single_file(source, "Service.scala")
+        find_symbol = next(s for s in symbols if s.kind == "function" and s.name == "find")
+
+        self.assertTrue(
+            any(
+                r.type == "CALLS"
+                and r.metadata["callee_name"] == "find"
+                and r.target_id == find_symbol.id
+                for r in relations
+            )
+        )
+
+    def test_unqualified_enum_case_reference_resolves_when_unique(self) -> None:
+        source = (
+            "package p\n"
+            "enum Color:\n"
+            "  case Red\n"
+            "object App:\n"
+            "  def pick(): Color = Red\n"
+        )
+        symbols, relations = self._extract_single_file(source, "App.scala")
+        red_symbol = next(s for s in symbols if s.kind == "enum_case" and s.name == "Red")
+
+        self.assertTrue(
+            any(
+                r.type == "CALLS"
+                and r.metadata["callee_name"] == "Red"
+                and r.target_id == red_symbol.id
+                for r in relations
+            )
+        )
+
+    def test_inject_annotation_constructor_params_are_used_as_fields(self) -> None:
+        source = (
+            "package p\n"
+            "class Inject\n"
+            "trait GameApi:\n"
+            "  def current(): Int\n"
+            "class Controller @Inject() (var game: GameApi):\n"
+            "  def run(): Int = game.current()\n"
+        )
+        symbols, relations = self._extract_single_file(source, "Controller.scala")
+        current_symbol = next(
+            s for s in symbols if s.kind == "function" and s.name == "current"
+        )
+
+        self.assertTrue(
+            any(
+                r.type == "CALLS"
+                and r.metadata["callee_name"] == "current"
+                and r.target_id == current_symbol.id
+                for r in relations
+            )
         )
 
 
