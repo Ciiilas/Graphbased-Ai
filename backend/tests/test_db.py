@@ -199,6 +199,39 @@ class Neo4jGraphRepositoryTest(unittest.TestCase):
         assert uses_external[1] is not None
         self.assertEqual(len(uses_external[1]["relations"]), 1)
 
+    def test_calls_preserve_paren_free_flag_on_relationship(self) -> None:
+        connection = FakeConnection()
+        repository = Neo4jGraphRepository(connection)
+        parsed_file = {
+            "relative_path": "Sample.scala",
+            "absolute_path": "C:/project/Sample.scala",
+            "has_errors": False,
+            "symbols": [],
+            "relations": [
+                {
+                    "type": "CALLS",
+                    "source_id": "Sample.scala:function:go:0:20",
+                    "target_id": None,
+                    "source_path": "Sample.scala",
+                    "target_kind": "call",
+                    "metadata": {
+                        "callee_name": "value",
+                        "receiver": "config",
+                        "resolved": False,
+                        "paren_free": True,
+                    },
+                },
+            ],
+        }
+
+        repository.import_parsed_file(parsed_file)
+
+        unresolved_calls_write = connection.writes[11]
+        self.assertIn("call.paren_free", unresolved_calls_write[0])
+        assert unresolved_calls_write[1] is not None
+        relation = unresolved_calls_write[1]["relations"][0]
+        self.assertIs(relation["metadata"]["paren_free"], True)
+
     def test_import_symbols_are_not_persisted_as_nodes(self) -> None:
         connection = FakeConnection()
         repository = Neo4jGraphRepository(connection)

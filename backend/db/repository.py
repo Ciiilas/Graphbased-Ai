@@ -280,12 +280,17 @@ class Neo4jGraphRepository:
         unresolved_calls: list[dict[str, Any]] = [
             relation for relation in calls if relation["target_kind"] == "call"
         ]
+        # ``paren_free`` (a method call written without parentheses, which is
+        # indistinguishable from a field read in Scala) is kept on the CALLS
+        # relationship so it stays filterable for both resolved and unresolved
+        # calls. It is absent from metadata unless true, hence the coalesce.
         self.connection.execute_write(
             """
             UNWIND $relations AS relation
             MERGE (source:Symbol {id: relation.source_id})
             MERGE (target:Symbol {id: relation.target_id})
-            MERGE (source)-[:CALLS]->(target)
+            MERGE (source)-[call:CALLS]->(target)
+            SET call.paren_free = coalesce(relation.metadata.paren_free, false)
             """,
             {"relations": resolved_calls},
         )
@@ -297,7 +302,8 @@ class Neo4jGraphRepository:
             SET target.callee_name = relation.metadata.callee_name,
                 target.receiver = relation.metadata.receiver,
                 target.resolved = false
-            MERGE (source)-[:CALLS]->(target)
+            MERGE (source)-[call:CALLS]->(target)
+            SET call.paren_free = coalesce(relation.metadata.paren_free, false)
             """,
             {"relations": unresolved_calls},
         )
