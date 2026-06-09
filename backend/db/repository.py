@@ -77,6 +77,8 @@ class Neo4jGraphRepository:
         self._write_declarations(relation_rows)
         self._write_imports(relation_rows)
         self._write_extends(relation_rows)
+        self._write_instantiations(relation_rows)
+        self._write_uses(relation_rows)
         self._write_calls(relation_rows)
         self._write_depends_on(relation_rows)
 
@@ -193,6 +195,81 @@ class Neo4jGraphRepository:
             MERGE (source)-[:EXTENDS]->(target)
             """,
             {"relations": external_extends},
+        )
+
+    def _write_instantiations(self, relation_rows: list[dict[str, Any]]) -> None:
+        instantiations: list[dict[str, Any]] = self._relations_of_type(
+            relation_rows,
+            "INSTANTIATES",
+        )
+        internal: list[dict[str, Any]] = [
+            relation
+            for relation in instantiations
+            if relation["target_kind"] == "symbol"
+        ]
+        external: list[dict[str, Any]] = [
+            relation
+            for relation in instantiations
+            if relation["target_kind"] == "external_import"
+        ]
+        # The source is the enclosing symbol, or the file when an instantiation
+        # sits outside any symbol, so it is resolved against both labels.
+        self.connection.execute_write(
+            """
+            UNWIND $relations AS relation
+            OPTIONAL MATCH (source_file:File {path: relation.source_id})
+            OPTIONAL MATCH (source_symbol:Symbol {id: relation.source_id})
+            WITH relation, coalesce(source_symbol, source_file) AS source
+            WHERE source IS NOT NULL
+            MERGE (target:Symbol {id: relation.target_id})
+            MERGE (source)-[:INSTANTIATES]->(target)
+            """,
+            {"relations": internal},
+        )
+        self.connection.execute_write(
+            """
+            UNWIND $relations AS relation
+            OPTIONAL MATCH (source_file:File {path: relation.source_id})
+            OPTIONAL MATCH (source_symbol:Symbol {id: relation.source_id})
+            WITH relation, coalesce(source_symbol, source_file) AS source
+            WHERE source IS NOT NULL
+            MERGE (target:ExternalImport {id: relation.target_id})
+            SET target.fqn = relation.metadata.fqn,
+                target.library = relation.metadata.library
+            MERGE (source)-[:INSTANTIATES]->(target)
+            """,
+            {"relations": external},
+        )
+
+    def _write_uses(self, relation_rows: list[dict[str, Any]]) -> None:
+        uses: list[dict[str, Any]] = self._relations_of_type(relation_rows, "USES")
+        internal: list[dict[str, Any]] = [
+            relation for relation in uses if relation["target_kind"] == "symbol"
+        ]
+        external: list[dict[str, Any]] = [
+            relation
+            for relation in uses
+            if relation["target_kind"] == "external_import"
+        ]
+        self.connection.execute_write(
+            """
+            UNWIND $relations AS relation
+            MERGE (source:Symbol {id: relation.source_id})
+            MERGE (target:Symbol {id: relation.target_id})
+            MERGE (source)-[:USES]->(target)
+            """,
+            {"relations": internal},
+        )
+        self.connection.execute_write(
+            """
+            UNWIND $relations AS relation
+            MERGE (source:Symbol {id: relation.source_id})
+            MERGE (target:ExternalImport {id: relation.target_id})
+            SET target.fqn = relation.metadata.fqn,
+                target.library = relation.metadata.library
+            MERGE (source)-[:USES]->(target)
+            """,
+            {"relations": external},
         )
 
     def _write_calls(self, relation_rows: list[dict[str, Any]]) -> None:

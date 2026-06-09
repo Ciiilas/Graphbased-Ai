@@ -136,7 +136,7 @@ class Neo4jGraphRepositoryTest(unittest.TestCase):
 
         repository.import_parsed_file(parsed_file)
 
-        self.assertEqual(len(connection.writes), 9)
+        self.assertEqual(len(connection.writes), 13)
         query, parameters = connection.writes[0]
         self.assertIn("MERGE (file:File", query)
         self.assertIn("UNWIND $symbols", query)
@@ -154,8 +154,50 @@ class Neo4jGraphRepositoryTest(unittest.TestCase):
         )
         self.assertIn("DECLARES", connection.writes[1][0])
         self.assertIn("ExternalImport", connection.writes[3][0])
-        self.assertIn("Call", connection.writes[7][0])
-        self.assertIn("DEPENDS_ON", connection.writes[8][0])
+        self.assertIn("INSTANTIATES", connection.writes[6][0])
+        self.assertIn("USES", connection.writes[8][0])
+        self.assertIn("Call", connection.writes[11][0])
+        self.assertIn("DEPENDS_ON", connection.writes[12][0])
+
+    def test_instantiates_and_uses_relations_route_to_their_queries(self) -> None:
+        connection = FakeConnection()
+        repository = Neo4jGraphRepository(connection)
+        parsed_file = {
+            "relative_path": "Sample.scala",
+            "absolute_path": "C:/project/Sample.scala",
+            "has_errors": False,
+            "symbols": [],
+            "relations": [
+                {
+                    "type": "INSTANTIATES",
+                    "source_id": "Sample.scala:val:w:0:5",
+                    "target_id": "Widget.scala:class:Widget:0:12",
+                    "source_path": "Sample.scala",
+                    "target_kind": "symbol",
+                    "metadata": {"type_name": "Widget"},
+                },
+                {
+                    "type": "USES",
+                    "source_id": "Sample.scala:function:find:0:20",
+                    "target_id": "external:scala.Option",
+                    "source_path": "Sample.scala",
+                    "target_kind": "external_import",
+                    "metadata": {"fqn": "scala.Option", "library": "scala"},
+                },
+            ],
+        }
+
+        repository.import_parsed_file(parsed_file)
+
+        instantiates_internal = connection.writes[6]
+        uses_external = connection.writes[9]
+        self.assertIn("INSTANTIATES", instantiates_internal[0])
+        assert instantiates_internal[1] is not None
+        self.assertEqual(len(instantiates_internal[1]["relations"]), 1)
+        self.assertIn("USES", uses_external[0])
+        self.assertIn("ExternalImport", uses_external[0])
+        assert uses_external[1] is not None
+        self.assertEqual(len(uses_external[1]["relations"]), 1)
 
     def test_import_symbols_are_not_persisted_as_nodes(self) -> None:
         connection = FakeConnection()
@@ -209,7 +251,7 @@ class Neo4jGraphRepositoryTest(unittest.TestCase):
 
         repository.import_parsed_file(parsed_file)
 
-        self.assertEqual(len(connection.writes), 9)
+        self.assertEqual(len(connection.writes), 13)
         _, parameters = connection.writes[0]
         assert parameters is not None
         self.assertEqual(parameters["symbols"], [])

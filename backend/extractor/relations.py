@@ -12,6 +12,26 @@ from backend.extractor.models import ScalaRelation, ScalaSymbol
 
 TYPE_KINDS: frozenset[str] = frozenset({"class", "object", "trait", "enum"})
 
+# Symbols whose source range can enclose a call/instantiation. The nearest
+# (smallest) enclosing symbol becomes the relation source, so a call in a
+# ``val`` initializer or class body is attributed to that ``val``/class instead
+# of being dropped, and a call in a nested function is counted only once.
+CONTAINER_KINDS: frozenset[str] = frozenset(
+    {"function", "val", "var", "given", "class", "object", "trait", "enum"}
+)
+
+# Symbols that carry a signature whose type references become USES relations.
+USES_SOURCE_KINDS: frozenset[str] = frozenset(
+    {"function", "class", "trait", "val", "var", "given", "type"}
+)
+
+# Fields of a definition node that are not part of its type signature: the
+# declared name, the body/initializer, and the supertype list (covered by
+# EXTENDS). ``type_parameters`` is skipped separately by node type.
+NON_SIGNATURE_FIELDS: frozenset[str] = frozenset(
+    {"name", "pattern", "body", "extend", "value"}
+)
+
 
 @dataclass(frozen=True)
 class RelationExtractor:
@@ -33,6 +53,11 @@ class RelationExtractor:
             for symbol in all_symbols
             if symbol.fqn is not None and symbol.kind != "import"
         }
+        package_name: str | None = next(
+            (symbol.fqn for symbol in symbols if symbol.kind == "package"),
+            None,
+        )
+        containers: list[tuple[int, int, ScalaSymbol]] = self._containers(symbols)
         relations: list[ScalaRelation] = []
         relations.extend(self._declaration_relations(source_path, symbols))
         relations.extend(
@@ -56,8 +81,27 @@ class RelationExtractor:
                 root_node=root_node,
                 source_bytes=source_bytes,
                 source_path=source_path,
-                symbols=symbols,
+                containers=containers,
                 all_symbols=all_symbols,
+            )
+        )
+        relations.extend(
+            self._instantiation_relations(
+                root_node=root_node,
+                source_bytes=source_bytes,
+                source_path=source_path,
+                containers=containers,
+                package_name=package_name,
+                symbols_by_fqn=symbols_by_fqn,
+            )
+        )
+        relations.extend(
+            self._uses_relations(
+                root_node=root_node,
+                source_bytes=source_bytes,
+                symbols=symbols,
+                package_name=package_name,
+                symbols_by_fqn=symbols_by_fqn,
             )
         )
         relations.extend(self._depends_on_relations(source_path, relations, symbol_by_id))
@@ -197,53 +241,208 @@ class RelationExtractor:
         root_node: Node,
         source_bytes: bytes,
         source_path: str,
-        symbols: list[ScalaSymbol],
+        containers: list[tuple[int, int, ScalaSymbol]],
         all_symbols: list[ScalaSymbol],
     ) -> list[ScalaRelation]:
-        function_by_range: dict[tuple[int, int], ScalaSymbol] = {
-            (symbol.range.start_byte, symbol.range.end_byte): symbol
-            for symbol in symbols
-            if symbol.kind == "function"
-        }
         function_symbols: list[ScalaSymbol] = [
             symbol for symbol in all_symbols if symbol.kind == "function"
         ]
+        nodes: list[Node] = self._nodes(root_node)
+        call_nodes: list[Node] = [
+            node for node in nodes if node.type == "call_expression"
+        ]
+        # ``field_expression`` nodes that are the callable of a parenthesized
+        # call are handled below as that call, not as a separate paren-less call.
+        called_function_ids: set[int] = set()
+        for call_node in call_nodes:
+            function_node: Node | None = call_node.child_by_field_name("function")
+            if function_node is not None:
+                called_function_ids.add(function_node.id)
+
         relations: list[ScalaRelation] = []
-        for function_node in self._nodes(root_node):
-            if function_node.type != "function_definition":
+        for call_node in call_nodes:
+            owner: ScalaSymbol | None = self._enclosing_symbol(call_node, containers)
+            if owner is None:
                 continue
-            caller: ScalaSymbol | None = function_by_range.get(
-                (function_node.start_byte, function_node.end_byte)
+            callee_name, receiver = self._call_target(call_node, source_bytes)
+            if callee_name is None:
+                continue
+            target: ScalaSymbol | None = self._resolve_call(
+                callee_name,
+                receiver,
+                owner,
+                function_symbols,
             )
-            if caller is None:
-                continue
-            for call_node in self._nodes(function_node):
-                if call_node.type != "call_expression":
-                    continue
-                callee_name, receiver = self._call_target(call_node, source_bytes)
-                if callee_name is None:
-                    continue
-                target: ScalaSymbol | None = self._resolve_call(
-                    callee_name,
-                    receiver,
-                    caller,
-                    function_symbols,
+            relations.append(
+                self._call_relation(
+                    owner=owner,
+                    target=target,
+                    source_path=source_path,
+                    callee_name=callee_name,
+                    receiver=receiver,
+                    paren_free=False,
                 )
-                metadata: dict[str, Any] = {
-                    "callee_name": callee_name,
-                    "receiver": receiver,
-                    "resolved": target is not None,
-                }
+            )
+
+        # Paren-less method calls (``a.method``) are ``field_expression`` nodes.
+        # They are syntactically indistinguishable from field reads, so they are
+        # captured and flagged ``paren_free`` for downstream filtering.
+        for field_node in nodes:
+            if field_node.type != "field_expression":
+                continue
+            if field_node.id in called_function_ids:
+                continue
+            owner = self._enclosing_symbol(field_node, containers)
+            if owner is None:
+                continue
+            field_child: Node | None = field_node.child_by_field_name("field")
+            value_child: Node | None = field_node.child_by_field_name("value")
+            if field_child is None:
+                continue
+            callee_name = self._node_text(field_child, source_bytes)
+            receiver = (
+                self._node_text(value_child, source_bytes)
+                if value_child is not None
+                else None
+            )
+            target = self._resolve_call(callee_name, receiver, owner, function_symbols)
+            relations.append(
+                self._call_relation(
+                    owner=owner,
+                    target=target,
+                    source_path=source_path,
+                    callee_name=callee_name,
+                    receiver=receiver,
+                    paren_free=True,
+                )
+            )
+        return relations
+
+    def _call_relation(
+        self,
+        owner: ScalaSymbol,
+        target: ScalaSymbol | None,
+        source_path: str,
+        callee_name: str,
+        receiver: str | None,
+        paren_free: bool,
+    ) -> ScalaRelation:
+        metadata: dict[str, Any] = {
+            "callee_name": callee_name,
+            "receiver": receiver,
+            "resolved": target is not None,
+        }
+        if paren_free:
+            metadata["paren_free"] = True
+        return ScalaRelation(
+            type="CALLS",
+            source_id=owner.id,
+            target_id=target.id if target is not None else None,
+            source_path=source_path,
+            target_kind="symbol" if target is not None else "call",
+            metadata=metadata,
+        )
+
+    def _instantiation_relations(
+        self,
+        root_node: Node,
+        source_bytes: bytes,
+        source_path: str,
+        containers: list[tuple[int, int, ScalaSymbol]],
+        package_name: str | None,
+        symbols_by_fqn: dict[str, ScalaSymbol],
+    ) -> list[ScalaRelation]:
+        relations: list[ScalaRelation] = []
+        for node in self._nodes(root_node):
+            if node.type != "instance_expression":
+                continue
+            type_node: Node | None = self._instance_type_node(node)
+            if type_node is None:
+                continue
+            type_name: str = self._base_type_name(type_node, source_bytes)
+            owner: ScalaSymbol | None = self._enclosing_symbol(node, containers)
+            source_id: str = owner.id if owner is not None else source_path
+            target: ScalaSymbol | None = self._resolve_type(
+                type_name,
+                package_name,
+                symbols_by_fqn,
+            )
+            if target is None:
                 relations.append(
-                    ScalaRelation(
-                        type="CALLS",
-                        source_id=caller.id,
-                        target_id=target.id if target is not None else None,
+                    self._external_relation(
+                        relation_type="INSTANTIATES",
+                        source_id=source_id,
                         source_path=source_path,
-                        target_kind="symbol" if target is not None else "call",
-                        metadata=metadata,
+                        fqn=type_name,
+                        metadata={"type_name": type_name},
                     )
                 )
+            else:
+                relations.append(
+                    ScalaRelation(
+                        type="INSTANTIATES",
+                        source_id=source_id,
+                        target_id=target.id,
+                        source_path=source_path,
+                        target_kind="symbol",
+                        metadata={"type_name": type_name},
+                    )
+                )
+        return relations
+
+    def _uses_relations(
+        self,
+        root_node: Node,
+        source_bytes: bytes,
+        symbols: list[ScalaSymbol],
+        package_name: str | None,
+        symbols_by_fqn: dict[str, ScalaSymbol],
+    ) -> list[ScalaRelation]:
+        symbol_by_range: dict[tuple[int, int], ScalaSymbol] = {
+            (symbol.range.start_byte, symbol.range.end_byte): symbol
+            for symbol in symbols
+            if symbol.kind in USES_SOURCE_KINDS
+        }
+        relations: list[ScalaRelation] = []
+        for node in self._nodes(root_node):
+            symbol: ScalaSymbol | None = symbol_by_range.get(
+                (node.start_byte, node.end_byte)
+            )
+            if symbol is None:
+                continue
+            seen: set[str] = set()
+            for type_name in self._signature_type_names(node, source_bytes):
+                if type_name in seen:
+                    continue
+                seen.add(type_name)
+                target: ScalaSymbol | None = self._resolve_type(
+                    type_name,
+                    package_name,
+                    symbols_by_fqn,
+                )
+                if target is not None and target.id == symbol.id:
+                    continue
+                if target is None:
+                    relations.append(
+                        self._external_relation(
+                            relation_type="USES",
+                            source_id=symbol.id,
+                            source_path=symbol.source_path,
+                            fqn=type_name,
+                            metadata={"type_name": type_name},
+                        )
+                    )
+                else:
+                    relations.append(
+                        ScalaRelation(
+                            type="USES",
+                            source_id=symbol.id,
+                            target_id=target.id,
+                            source_path=symbol.source_path,
+                            target_kind="symbol",
+                            metadata={"type_name": type_name},
+                        )
+                    )
         return relations
 
     def _depends_on_relations(
@@ -254,7 +453,7 @@ class RelationExtractor:
     ) -> list[ScalaRelation]:
         target_paths: set[str] = set()
         for relation in relations:
-            if relation.type not in {"IMPORTS", "CALLS"}:
+            if relation.type not in {"IMPORTS", "CALLS", "INSTANTIATES", "USES"}:
                 continue
             if relation.target_id is None:
                 continue
@@ -425,6 +624,63 @@ class RelationExtractor:
             target_kind="external_import",
             metadata=relation_metadata,
         )
+
+    def _containers(
+        self,
+        symbols: list[ScalaSymbol],
+    ) -> list[tuple[int, int, ScalaSymbol]]:
+        return [
+            (symbol.range.start_byte, symbol.range.end_byte, symbol)
+            for symbol in symbols
+            if symbol.kind in CONTAINER_KINDS
+        ]
+
+    def _enclosing_symbol(
+        self,
+        node: Node,
+        containers: list[tuple[int, int, ScalaSymbol]],
+    ) -> ScalaSymbol | None:
+        best: ScalaSymbol | None = None
+        best_span: int | None = None
+        for start_byte, end_byte, symbol in containers:
+            if start_byte <= node.start_byte and node.end_byte <= end_byte:
+                span: int = end_byte - start_byte
+                if best_span is None or span < best_span:
+                    best_span = span
+                    best = symbol
+        return best
+
+    def _instance_type_node(self, node: Node) -> Node | None:
+        for child in node.children:
+            if child.type in {
+                "type_identifier",
+                "stable_type_identifier",
+                "generic_type",
+            }:
+                return child
+        return None
+
+    def _signature_type_names(self, node: Node, source_bytes: bytes) -> list[str]:
+        names: list[str] = []
+        self._collect_signature_types(node, source_bytes, names, is_root=True)
+        return names
+
+    def _collect_signature_types(
+        self,
+        node: Node,
+        source_bytes: bytes,
+        names: list[str],
+        is_root: bool,
+    ) -> None:
+        for index, child in enumerate(node.children):
+            if child.type == "type_parameters":
+                continue
+            if is_root and node.field_name_for_child(index) in NON_SIGNATURE_FIELDS:
+                continue
+            if child.type in {"type_identifier", "stable_type_identifier"}:
+                names.append(self._node_text(child, source_bytes))
+                continue
+            self._collect_signature_types(child, source_bytes, names, is_root=False)
 
     def _nodes(self, node: Node) -> list[Node]:
         nodes: list[Node] = [node]

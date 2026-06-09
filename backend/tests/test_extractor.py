@@ -289,6 +289,134 @@ class RelationExtractorTest(unittest.TestCase):
             any(relation.target_kind == "external_import" for relation in extends_relations)
         )
 
+    def _extract_single_file(self, source: str, source_path: str):
+        parser = ScalaTreeSitterParser()
+        symbol_extractor = SymbolExtractor()
+        relation_extractor = RelationExtractor()
+        source_bytes = source.encode("utf-8")
+        tree = parser.parse_bytes(source_bytes)
+        symbols = symbol_extractor.extract(tree.root_node, source_bytes, source_path)
+        relations = relation_extractor.extract(
+            root_node=tree.root_node,
+            source_bytes=source_bytes,
+            source_path=source_path,
+            symbols=symbols,
+            all_symbols=symbols,
+        )
+        return symbols, relations
+
+    def test_instantiates_resolves_internal_and_marks_external(self) -> None:
+        source = (
+            "package sample\n"
+            "class Widget\n"
+            "object App {\n"
+            "  val w = new Widget\n"
+            "  def make(): Unit = { val x = new Missing() }\n"
+            "}\n"
+        )
+        symbols, relations = self._extract_single_file(source, "App.scala")
+        widget_symbol = next(s for s in symbols if s.kind == "class" and s.name == "Widget")
+        w_val = next(s for s in symbols if s.kind == "val" and s.name == "w")
+        instantiates = [r for r in relations if r.type == "INSTANTIATES"]
+
+        self.assertTrue(
+            any(
+                r.target_kind == "symbol"
+                and r.target_id == widget_symbol.id
+                and r.source_id == w_val.id
+                for r in instantiates
+            )
+        )
+        self.assertTrue(
+            any(
+                r.target_kind == "external_import" and r.metadata["type_name"] == "Missing"
+                for r in instantiates
+            )
+        )
+
+    def test_paren_free_call_resolves_and_is_flagged(self) -> None:
+        source = (
+            "package sample\n"
+            "object Service {\n"
+            "  def run(): Unit = {}\n"
+            "}\n"
+            "object Client {\n"
+            "  def go(): Unit = {\n"
+            "    Service.run\n"
+            "    config.value\n"
+            "  }\n"
+            "}\n"
+        )
+        symbols, relations = self._extract_single_file(source, "Service.scala")
+        run_symbol = next(s for s in symbols if s.kind == "function" and s.name == "run")
+        calls = [r for r in relations if r.type == "CALLS"]
+
+        self.assertTrue(
+            any(
+                r.metadata.get("paren_free") is True
+                and r.target_kind == "symbol"
+                and r.target_id == run_symbol.id
+                for r in calls
+            )
+        )
+        self.assertTrue(
+            any(
+                r.metadata.get("paren_free") is True
+                and r.metadata["callee_name"] == "value"
+                and r.target_id is None
+                and r.target_kind == "call"
+                for r in calls
+            )
+        )
+
+    def test_call_in_val_initializer_is_attributed_to_enclosing_symbol(self) -> None:
+        source = (
+            "package sample\n"
+            "object App {\n"
+            "  val n = compute()\n"
+            "  def compute(): Int = 0\n"
+            "}\n"
+        )
+        symbols, relations = self._extract_single_file(source, "App.scala")
+        n_val = next(s for s in symbols if s.kind == "val" and s.name == "n")
+        compute_symbol = next(s for s in symbols if s.kind == "function" and s.name == "compute")
+
+        self.assertTrue(
+            any(
+                r.type == "CALLS"
+                and r.source_id == n_val.id
+                and r.target_id == compute_symbol.id
+                for r in relations
+            )
+        )
+
+    def test_uses_links_signature_types_to_symbols(self) -> None:
+        source = (
+            "package sample\n"
+            "trait Repo\n"
+            "class Service(repo: Repo) {\n"
+            "  def find(): Repo = ???\n"
+            "}\n"
+        )
+        symbols, relations = self._extract_single_file(source, "Service.scala")
+        repo_symbol = next(s for s in symbols if s.kind == "trait" and s.name == "Repo")
+        service_symbol = next(s for s in symbols if s.kind == "class" and s.name == "Service")
+        find_symbol = next(s for s in symbols if s.kind == "function" and s.name == "find")
+        uses = [r for r in relations if r.type == "USES"]
+
+        self.assertTrue(
+            any(
+                r.source_id == service_symbol.id and r.target_id == repo_symbol.id
+                for r in uses
+            )
+        )
+        self.assertTrue(
+            any(
+                r.source_id == find_symbol.id and r.target_id == repo_symbol.id
+                for r in uses
+            )
+        )
+
 
 class ScalaExtractionCliTest(unittest.TestCase):
     def test_cli_writes_manifest_and_file_json(self) -> None:
