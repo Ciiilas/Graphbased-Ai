@@ -527,6 +527,70 @@ class RelationExtractorTest(unittest.TestCase):
             )
         )
 
+    def test_call_resolves_to_unique_implementation_member(self) -> None:
+        source = (
+            "package p\n"
+            "trait Repo\n"
+            "class SqlRepo extends Repo:\n"
+            "  def find(): Int = 1\n"
+            "class Service(repo: Repo):\n"
+            "  def run(): Int = repo.find()\n"
+        )
+        symbols, relations = self._extract_single_file(source, "Service.scala")
+        find_symbol = next(s for s in symbols if s.kind == "function" and s.name == "find")
+
+        self.assertTrue(
+            any(
+                r.type == "CALLS"
+                and r.metadata["callee_name"] == "find"
+                and r.target_id == find_symbol.id
+                for r in relations
+            )
+        )
+
+    def test_unqualified_enum_case_reference_resolves_when_unique(self) -> None:
+        source = (
+            "package p\n"
+            "enum Color:\n"
+            "  case Red\n"
+            "object App:\n"
+            "  def pick(): Color = Red\n"
+        )
+        symbols, relations = self._extract_single_file(source, "App.scala")
+        red_symbol = next(s for s in symbols if s.kind == "enum_case" and s.name == "Red")
+
+        self.assertTrue(
+            any(
+                r.type == "CALLS"
+                and r.metadata["callee_name"] == "Red"
+                and r.target_id == red_symbol.id
+                for r in relations
+            )
+        )
+
+    def test_inject_annotation_constructor_params_are_used_as_fields(self) -> None:
+        source = (
+            "package p\n"
+            "class Inject\n"
+            "trait GameApi:\n"
+            "  def current(): Int\n"
+            "class Controller @Inject() (var game: GameApi):\n"
+            "  def run(): Int = game.current()\n"
+        )
+        symbols, relations = self._extract_single_file(source, "Controller.scala")
+        current_symbol = next(
+            s for s in symbols if s.kind == "function" and s.name == "current"
+        )
+
+        self.assertTrue(
+            any(
+                r.type == "CALLS"
+                and r.metadata["callee_name"] == "current"
+                and r.target_id == current_symbol.id
+                for r in relations
+            )
+        )
+
 
 class ScalaExtractionCliTest(unittest.TestCase):
     def test_cli_writes_manifest_and_file_json(self) -> None:

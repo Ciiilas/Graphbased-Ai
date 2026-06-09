@@ -44,6 +44,8 @@ class ResolutionContext:
     simple_types: dict[str, list[ScalaSymbol]]
     members_by_parent: dict[str, list[ScalaSymbol]]
     supertypes_by_id: dict[str, list[str]]
+    implementors_by_id: dict[str, list[str]]
+    enum_cases_by_name: dict[str, list[ScalaSymbol]]
     import_simple: dict[str, str]
     import_wildcards: list[str]
     package_name: str | None
@@ -344,6 +346,28 @@ class RelationExtractor:
                     paren_free=True,
                 )
             )
+        for identifier_node in nodes:
+            if identifier_node.type != "identifier":
+                continue
+            if self._skip_unqualified_enum_identifier(identifier_node):
+                continue
+            owner = self._enclosing_symbol(identifier_node, containers)
+            if owner is None:
+                continue
+            callee_name = self._node_text(identifier_node, source_bytes)
+            target = self._resolve_unqualified_enum_case(callee_name, context)
+            if target is None:
+                continue
+            relations.append(
+                self._call_relation(
+                    owner=owner,
+                    target=target,
+                    source_path=source_path,
+                    callee_name=callee_name,
+                    receiver=None,
+                    paren_free=False,
+                )
+            )
         return relations
 
     def _resolve_call_node(
@@ -374,6 +398,15 @@ class RelationExtractor:
             target: ScalaSymbol | None = self._find_member(
                 callee_name, receiver_type, context
             )
+            if target is not None:
+                return target
+            target = self._find_member_in_implementors(
+                callee_name, receiver_type, context
+            )
+            if target is not None:
+                return target
+        if receiver_node is None:
+            target = self._resolve_unqualified_enum_case(callee_name, context)
             if target is not None:
                 return target
         return self._resolve_call_byname(
@@ -768,6 +801,34 @@ class RelationExtractor:
             queue.extend(context.supertypes_by_id.get(type_id, []))
         return None
 
+    def _find_member_in_implementors(
+        self,
+        name: str,
+        type_symbol: ScalaSymbol,
+        context: ResolutionContext,
+    ) -> ScalaSymbol | None:
+        matches: list[ScalaSymbol] = []
+        seen_types: set[str] = set()
+        queue: list[str] = list(context.implementors_by_id.get(type_symbol.id, []))
+        while queue:
+            type_id: str = queue.pop(0)
+            if type_id in seen_types:
+                continue
+            seen_types.add(type_id)
+            for member in context.members_by_parent.get(type_id, []):
+                if member.name == name and member.kind in CALLABLE_KINDS:
+                    matches.append(member)
+            queue.extend(context.implementors_by_id.get(type_id, []))
+        return matches[0] if len(matches) == 1 else None
+
+    def _resolve_unqualified_enum_case(
+        self,
+        name: str,
+        context: ResolutionContext,
+    ) -> ScalaSymbol | None:
+        matches: list[ScalaSymbol] = context.enum_cases_by_name.get(name, [])
+        return matches[0] if len(matches) == 1 else None
+
     def _resolve_type_name(
         self,
         name: str,
@@ -876,9 +937,16 @@ class RelationExtractor:
         for symbol in all_symbols:
             if symbol.parent_id is not None and symbol.kind in CALLABLE_KINDS:
                 members_by_parent.setdefault(symbol.parent_id, []).append(symbol)
+        enum_cases_by_name: dict[str, list[ScalaSymbol]] = {}
+        for symbol in all_symbols:
+            if symbol.kind == "enum_case":
+                enum_cases_by_name.setdefault(symbol.name, []).append(symbol)
         import_simple, import_wildcards = self._build_import_index(symbols)
         supertypes_by_id: dict[str, list[str]] = self._build_supertypes(
             type_symbols, symbols_by_fqn, simple_types
+        )
+        implementors_by_id: dict[str, list[str]] = self._build_implementors(
+            supertypes_by_id
         )
         func_params, field_types = self._build_scope(root_node, source_bytes, symbols)
         return ResolutionContext(
@@ -886,6 +954,8 @@ class RelationExtractor:
             simple_types=simple_types,
             members_by_parent=members_by_parent,
             supertypes_by_id=supertypes_by_id,
+            implementors_by_id=implementors_by_id,
+            enum_cases_by_name=enum_cases_by_name,
             import_simple=import_simple,
             import_wildcards=import_wildcards,
             package_name=package_name,
@@ -940,6 +1010,16 @@ class RelationExtractor:
                 supertypes_by_id[symbol.id] = ids
         return supertypes_by_id
 
+    def _build_implementors(
+        self,
+        supertypes_by_id: dict[str, list[str]],
+    ) -> dict[str, list[str]]:
+        implementors_by_id: dict[str, list[str]] = {}
+        for type_id, supertype_ids in supertypes_by_id.items():
+            for supertype_id in supertype_ids:
+                implementors_by_id.setdefault(supertype_id, []).append(type_id)
+        return implementors_by_id
+
     def _resolve_type_name_global(
         self,
         name: str,
@@ -983,14 +1063,13 @@ class RelationExtractor:
                 if params:
                     func_params[symbol.id] = params
             elif symbol.kind in TYPE_KINDS:
-                class_parameters: Node | None = node.child_by_field_name(
-                    "class_parameters"
-                )
+                params = {}
+                self._collect_class_header_params(node, source_bytes, params)
+                class_parameters: Node | None = node.child_by_field_name("class_parameters")
                 if class_parameters is not None:
-                    params = {}
                     self._collect_params_from(class_parameters, source_bytes, params)
-                    if params:
-                        field_types.setdefault(symbol.id, {}).update(params)
+                if params:
+                    field_types.setdefault(symbol.id, {}).update(params)
             elif symbol.kind in {"val", "var"} and symbol.parent_id is not None:
                 # Infer the field type from a ``new X(...)`` initializer when the
                 # ``val``/``var`` has no explicit type annotation.
@@ -1034,8 +1113,112 @@ class RelationExtractor:
                     type_node, source_bytes
                 )
 
+    def _collect_class_header_params(
+        self,
+        class_node: Node,
+        source_bytes: bytes,
+        out: dict[str, str],
+    ) -> None:
+        for child in class_node.children:
+            if child.type in {"extends_clause", "template_body"}:
+                return
+            self._collect_header_params_from_node(child, source_bytes, out)
+
+    def _collect_header_params_from_node(
+        self,
+        node: Node,
+        source_bytes: bytes,
+        out: dict[str, str],
+    ) -> None:
+        if node.type in {"parameter", "class_parameter"}:
+            self._collect_param_node(node, source_bytes, out)
+            return
+        if node.type in {"arguments", "class_parameters", "parameters"}:
+            self._collect_params_from_text(self._node_text(node, source_bytes), out)
+        for child in node.children:
+            self._collect_header_params_from_node(child, source_bytes, out)
+
+    def _collect_param_node(
+        self,
+        param_node: Node,
+        source_bytes: bytes,
+        out: dict[str, str],
+    ) -> None:
+        name_node: Node | None = param_node.child_by_field_name("name")
+        type_node: Node | None = param_node.child_by_field_name("type")
+        if name_node is not None and type_node is not None:
+            out[self._node_text(name_node, source_bytes)] = self._base_type_name(
+                type_node, source_bytes
+            )
+
+    def _collect_params_from_text(self, params_text: str, out: dict[str, str]) -> None:
+        stripped_text: str = params_text.strip()
+        if stripped_text.startswith("(") and stripped_text.endswith(")"):
+            stripped_text = stripped_text[1:-1]
+        for param_text in self._split_top_level_commas(stripped_text):
+            if ":" not in param_text:
+                continue
+            name_part, type_part = param_text.split(":", 1)
+            name_tokens: list[str] = name_part.strip().split()
+            if not name_tokens:
+                continue
+            name: str = name_tokens[-1]
+            declared_type: str = type_part.split("=", 1)[0].strip()
+            if name and declared_type:
+                out[name] = self._base_name_of(declared_type)
+
+    def _split_top_level_commas(self, text: str) -> list[str]:
+        parts: list[str] = []
+        depth: int = 0
+        start_index: int = 0
+        opening: frozenset[str] = frozenset({"(", "[", "{"})
+        closing: frozenset[str] = frozenset({")", "]", "}"})
+        for index, char in enumerate(text):
+            if char in opening:
+                depth += 1
+            elif char in closing and depth > 0:
+                depth -= 1
+            elif char == "," and depth == 0:
+                parts.append(text[start_index:index].strip())
+                start_index = index + 1
+        tail: str = text[start_index:].strip()
+        if tail:
+            parts.append(tail)
+        return parts
+
     def _base_name_of(self, type_text: str) -> str:
         return type_text.split("[", 1)[0].strip()
+
+    def _skip_unqualified_enum_identifier(self, node: Node) -> bool:
+        parent: Node | None = node.parent
+        if parent is not None and parent.type in {"field_expression", "import_declaration"}:
+            return True
+        if self._is_child_field(node, "function"):
+            return True
+        if self._is_child_field(node, "name"):
+            return True
+        skipped_ancestors: frozenset[str] = frozenset(
+            {
+                "package_clause",
+                "import_declaration",
+                "simple_enum_case",
+                "full_enum_case",
+                "enum_case_definitions",
+            }
+        )
+        current: Node | None = parent
+        while current is not None:
+            if current.type in skipped_ancestors:
+                return True
+            current = current.parent
+        return False
+
+    def _is_child_field(self, node: Node, field_name: str) -> bool:
+        parent: Node | None = node.parent
+        if parent is None:
+            return False
+        field_child: Node | None = parent.child_by_field_name(field_name)
+        return field_child is not None and field_child.id == node.id
 
     def _instance_type_node(self, node: Node) -> Node | None:
         for child in node.children:

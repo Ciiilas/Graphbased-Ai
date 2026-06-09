@@ -96,6 +96,23 @@ Die restlichen 509 unaufgelösten Calls zielen korrekt auf die Standardbibliothe
 - Unqualifizierte Enum-Cases außerhalb des Enums (`SET_STONE`, `White`) → bräuchte Companion-/Enum-Scope.
 - Konstruktor-Parameter hinter `@Inject() (...)` (Tree-sitter-Parse-Limitierung → `game`-Feld in Controller).
 
+## Runde 3: Konservative Rest-Heuristiken (umgesetzt)
+
+Umgesetzt in `backend/extractor/relations.py`:
+
+- **Implementor-Fallback**: Wenn ein Receiver einen Interface-/Trait-Typ hat und der Member dort nicht
+  gefunden wird, wird in eindeutigen Implementierungen gesucht. Bei mehreren Treffern bleibt der Call
+  unaufgeloest.
+- **Unqualifizierte Enum-Cases**: Eindeutige Enum-Case-Identifier wie `SET_STONE` oder `White` werden
+  auf das passende `enum_case`-Symbol aufgeloest; qualifizierte Referenzen wie `Stone.White` werden nicht
+  doppelt gezaehlt.
+- **`@Inject`-Konstruktorparameter**: Parameterlisten, die Tree-sitter als Annotation-Argumente bzw.
+  teilweise als `ERROR` parsed, werden fuer den Scope-Aufbau eng aus dem Header gelesen.
+
+Gemessener Effekt auf `testproject/Muehle`: **183 intern aufgeloeste CALLS** statt 151.
+Der Extractor erzeugt jetzt `CALLS=949`, davon `CALLS_resolved_symbol=183`; die Gesamtzahl steigt mit,
+weil unqualifizierte Enum-Case-Referenzen nun ebenfalls als graph-fertige `CALLS` sichtbar sind.
+
 ## Verifikation
 
 1. `python -m unittest discover -s backend/tests`
