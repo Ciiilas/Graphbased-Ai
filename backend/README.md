@@ -16,8 +16,9 @@ in `requirements.txt` festgelegt.
 ## Extractor (`backend/extractor/`)
 
 Liest eine Scala-Codebase ein und schreibt pro Datei einen graph-fertigen
-AST + Basis-Symbole (package, import, object, class, trait, enum, function,
-val, var, type, given) sowie Graph-Relationen als JSON.
+AST + Basis-Symbole (package, import, object, class, trait, enum, enum_case,
+function, val, var, type, given – inkl. abstrakter `*_declaration`-Member in
+Traits/Interfaces) sowie Graph-Relationen als JSON.
 
 Die Verantwortlichkeiten sind getrennt:
 
@@ -45,6 +46,18 @@ aufgelöst oder als `external_import` markiert):
 - `USES` – Typ-Referenzen in Signaturen (Parameter-, Rückgabe- und Feldtypen).
 - `DEPENDS_ON` – datei-übergreifende Abhängigkeit, abgeleitet aus aufgelösten
   `IMPORTS`/`CALLS`/`INSTANTIATES`/`USES`.
+
+#### Call-Auflösung
+
+`CALLS` werden typ-bewusst aufgelöst: Der Receiver wird über eine Scope-Symboltabelle
+(Parameter, `val`/`var`-Felder, Konstruktor-Parameter, `this`) auf ein Typ-Symbol getypt,
+die Methode in dessen Membern **inkl. vererbter Member** (über die `EXTENDS`-Hierarchie) gesucht.
+Verkettete Aufrufe (`a.b.c()`) werden rekursiv über Rückgabetypen aufgelöst, einfache Namen über
+die Imports der Datei (`Simplename → FQN`). Greift das nicht, folgt ein namensbasierter Fallback.
+
+Bekannte Grenzen (ohne vollständige Typinferenz nicht auflösbar): Methoden, die nur in der
+Implementierung statt im Interface deklariert sind; unqualifizierte Enum-Cases außerhalb des Enums;
+Konstruktor-Parameter hinter Annotationen wie `@Inject() (...)` (Tree-sitter-Parse-Limitierung).
 
 Ausführen:
 

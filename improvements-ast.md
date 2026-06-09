@@ -75,10 +75,26 @@ hartes Weglassen (verpasst echte Methodenaufrufe) oder ungefiltertes Aufnehmen.
   Quelle = umschließendes Symbol, USES auf internen Typ.
 - README-Abschnitt um `INSTANTIATES`, `USES` und das `paren_free`-Flag ergänzen.
 
-## Optional / nicht im Scope
+## Runde 2: Typ-bewusste Call-Auflösung (umgesetzt)
 
-Enum-Cases (`case Set`) als eigene Symbole → würde `Event.Set`-Referenzen auflösbar machen (aktuell
-als markierter paren-less Call). Bei Bedarf separat.
+Ausgangslage: nur **89/799 Calls (11 %)** auf interne Symbole aufgelöst. Umgesetzt:
+
+- **Abstrakte Trait/Interface-Member** (`function_declaration` etc.) werden jetzt als Symbole erfasst
+  (`symbols.py`) — vorher fehlten *alle* Interface-Methodensignaturen, weshalb Calls über Interface-Typen
+  nie auflösten.
+- **Enum-Cases** (`simple_enum_case`/`full_enum_case`) als `enum_case`-Symbole (`Event.Set` auflösbar).
+- **Receiver-Typ-Auflösung** (`relations.py`): Scope-Symboltabelle (Parameter, `val`/`var`-Felder,
+  Konstruktor-Parameter, `this`, inferierte `val`-Typen aus `new X`), Member-Suche **inkl. Vererbung**
+  über die `EXTENDS`-Hierarchie, **verkettete** Receiver (`a.b.c()`) rekursiv über Rückgabetypen,
+  **Import-bewusste** Namensauflösung (`Simplename → FQN`), plus namensbasierter Fallback.
+
+Ergebnis: **151/290 intern-auflösbare Calls (52 %)** — von 11 % auf 52 % der prinzipiell auflösbaren.
+Die restlichen 509 unaufgelösten Calls zielen korrekt auf die Standardbibliothek/externe Libs.
+
+### Verbleibende Grenzen (Folgearbeit, ohne volle Typinferenz)
+- Methoden nur in der Impl statt im Interface deklariert (`getMuehleMatrix`).
+- Unqualifizierte Enum-Cases außerhalb des Enums (`SET_STONE`, `White`) → bräuchte Companion-/Enum-Scope.
+- Konstruktor-Parameter hinter `@Inject() (...)` (Tree-sitter-Parse-Limitierung → `game`-Feld in Controller).
 
 ## Verifikation
 
