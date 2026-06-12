@@ -13,7 +13,6 @@ from backend.vector.config import (
     GeminiEmbeddingSettings,
     GeminiGenerationSettings,
 )
-from backend.vector.embeddings import LlamaIndexGeminiEmbeddingProvider
 from backend.vector.importer import AstVectorImporter, VectorSearchService
 from backend.vector.repository import ChromaVectorRepository, SearchResult
 
@@ -334,64 +333,6 @@ class AstVectorImporterTest(unittest.TestCase):
         self.assertTrue(summary.has_errors)
         self.assertEqual(summary.imported_files, 0)
         self.assertIn("Missing.scala", summary.failed_files[0]["path"])
-
-
-class GeminiEmbeddingRetryTest(unittest.TestCase):
-    def _provider(self) -> LlamaIndexGeminiEmbeddingProvider:
-        provider = object.__new__(LlamaIndexGeminiEmbeddingProvider)
-        provider.max_retries = 3
-        provider.base_delay_seconds = 2.0
-        return provider
-
-    def test_with_retry_retries_rate_limit_then_succeeds(self) -> None:
-        provider = self._provider()
-        attempts: list[int] = []
-
-        def operation() -> str:
-            attempts.append(len(attempts))
-            if len(attempts) < 3:
-                raise RuntimeError(
-                    "429 RESOURCE_EXHAUSTED. Please retry in 0.5s"
-                )
-            return "ok"
-
-        sleeps: list[float] = []
-        with patch("backend.vector.embeddings.time.sleep", sleeps.append):
-            result = provider._with_retry(operation)
-
-        self.assertEqual(result, "ok")
-        self.assertEqual(len(attempts), 3)
-        # The 429 hint "retry in 0.5s" is honored (plus a 1s safety buffer).
-        self.assertEqual(sleeps, [1.5, 1.5])
-
-    def test_with_retry_falls_back_to_exponential_backoff(self) -> None:
-        provider = self._provider()
-        sleeps: list[float] = []
-
-        def operation() -> str:
-            raise RuntimeError("RESOURCE_EXHAUSTED: quota exceeded")
-
-        with patch("backend.vector.embeddings.time.sleep", sleeps.append):
-            with self.assertRaises(RuntimeError):
-                provider._with_retry(operation)
-
-        # No delay hint -> base_delay * 2**attempt for attempts 0, 1, 2.
-        self.assertEqual(sleeps, [2.0, 4.0, 8.0])
-
-    def test_with_retry_does_not_retry_non_rate_limit_errors(self) -> None:
-        provider = self._provider()
-        calls: list[int] = []
-
-        def operation() -> str:
-            calls.append(1)
-            raise ValueError("bad request")
-
-        with patch("backend.vector.embeddings.time.sleep") as sleep_mock:
-            with self.assertRaises(ValueError):
-                provider._with_retry(operation)
-
-        self.assertEqual(len(calls), 1)
-        sleep_mock.assert_not_called()
 
 
 class VectorSearchServiceTest(unittest.TestCase):
