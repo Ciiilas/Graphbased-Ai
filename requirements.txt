@@ -5,3 +5,6 @@ chromadb==1.5.9
 llama-index-core==0.14.22
 llama-index-embeddings-google-genai==0.5.1
 google-genai==2.8.0
+fastapi==0.115.6
+uvicorn==0.34.0
+python-multipart==0.0.20

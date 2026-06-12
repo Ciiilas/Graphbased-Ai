@@ -255,6 +255,34 @@ Innerhalb von `backend/` werden Parsing, Graph-Erstellung, Vektorsuche, LLM-Orch
 API-Schicht gemäß den [Architekturprinzipien](#architekturprinzipien) modular und getrennt
 aufgebaut.
 
+### Lokaler Start
+
+Infrastruktur starten:
+
+```bash
+docker compose up -d neo4j chroma
+```
+
+Python-Backend vorbereiten und FastAPI starten:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn backend.api.app:app --reload --port 8000
+```
+
+Frontend starten:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Die Website läuft standardmäßig unter `http://127.0.0.1:5173` und spricht mit
+der API unter `http://localhost:8000`.
+
 ## Vision
 
 Graphbased-AI soll ein Werkzeug werden, das Scala-Codebases wie ein technischer Architekturpartner erklärt. Statt nur Trefferlisten zu liefern, soll das System Zusammenhänge sichtbar machen, Auswirkungen von Änderungen einschätzen und Entwicklerinnen und Entwicklern helfen, fundierte Entscheidungen in komplexen Scala-Softwareprojekten zu treffen.

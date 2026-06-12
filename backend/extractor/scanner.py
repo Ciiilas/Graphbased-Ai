@@ -27,7 +27,7 @@ class ScalaFileScanner:
     excluded_dirs: frozenset[str] = field(default=DEFAULT_EXCLUDED_DIRS)
 
     def find_scala_files(self, source_root: Path) -> list[Path]:
-        root: Path = source_root.resolve()
+        root: Path = source_root.absolute()
         if not root.exists():
             raise FileNotFoundError(f"Source root does not exist: {root}")
         if not root.is_dir():
