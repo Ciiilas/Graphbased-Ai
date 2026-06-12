@@ -39,9 +39,14 @@ from backend.extractor.relations import RelationExtractor
 from backend.extractor.scanner import ScalaFileScanner
 from backend.extractor.symbols import SymbolExtractor
 from backend.orchestrator.graph import GraphContextRepository
+from backend.orchestrator.llm import GeminiAnswerProvider
 from backend.orchestrator.models import OrchestratorResponse
 from backend.orchestrator.service import CodeQuestionOrchestrator
-from backend.vector.config import ChromaSettings, GeminiEmbeddingSettings
+from backend.vector.config import (
+    ChromaSettings,
+    GeminiEmbeddingSettings,
+    GeminiGenerationSettings,
+)
 from backend.vector.embeddings import LlamaIndexGeminiEmbeddingProvider
 from backend.vector.importer import AstVectorImporter
 from backend.vector.repository import ChromaVectorRepository
@@ -279,6 +284,7 @@ def ask_loop(top_k: int, max_neighbors: int, max_snippets: int) -> None:
         embedding_provider = LlamaIndexGeminiEmbeddingProvider(
             GeminiEmbeddingSettings.from_env()
         )
+        answer_provider = GeminiAnswerProvider(GeminiGenerationSettings.from_env())
     except ImportError as error:
         print(f"  [FEHLER] Abhängigkeit fehlt: {error}")
         print("    Tipp: 'pip install -r requirements.txt' ausführen.")
@@ -295,6 +301,7 @@ def ask_loop(top_k: int, max_neighbors: int, max_snippets: int) -> None:
                 embedding_provider=embedding_provider,
                 vector_repository=vector_repository,
                 graph_repository=GraphContextRepository(connection),
+                answer_provider=answer_provider,
             )
             while True:
                 query: str = input("\nFrage> ").strip()
@@ -327,12 +334,14 @@ def answer_single(
         embedding_provider = LlamaIndexGeminiEmbeddingProvider(
             GeminiEmbeddingSettings.from_env()
         )
+        answer_provider = GeminiAnswerProvider(GeminiGenerationSettings.from_env())
         with Neo4jConnection(Neo4jSettings.from_env()) as connection:
             connection.verify_connectivity()
             orchestrator = CodeQuestionOrchestrator(
                 embedding_provider=embedding_provider,
                 vector_repository=vector_repository,
                 graph_repository=GraphContextRepository(connection),
+                answer_provider=answer_provider,
             )
             response = orchestrator.answer(
                 query=query,
