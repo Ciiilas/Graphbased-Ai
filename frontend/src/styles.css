@@ -228,11 +228,75 @@ button:disabled {
   line-height: 1.48;
 }
 
-.message pre {
+.message-content {
+  display: grid;
+  gap: 10px;
+}
+
+.message-content p,
+.message-content ul,
+.message-heading {
   margin: 0;
+}
+
+.message-content p {
   white-space: pre-wrap;
   word-break: break-word;
-  font: inherit;
+}
+
+.message-content ul {
+  display: grid;
+  gap: 7px;
+  padding-left: 20px;
+}
+
+.message-content li {
+  padding-left: 2px;
+}
+
+.message-content li::marker {
+  color: #fb923c;
+}
+
+.message-heading {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 28px;
+  border-bottom: 1px solid rgba(251, 146, 60, 0.22);
+  padding: 2px 0 7px 12px;
+  color: #fff7ed;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.message-heading::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 3px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #fb923c, #f97316);
+}
+
+.message-content strong {
+  color: #fb923c;
+  font-weight: 800;
+}
+
+.message-content code {
+  border: 1px solid rgba(251, 146, 60, 0.24);
+  border-radius: 5px;
+  padding: 1px 5px;
+  background: rgba(249, 115, 22, 0.14);
+  color: #fed7aa;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.92em;
+  word-break: break-word;
 }
 
 .message--assistant {

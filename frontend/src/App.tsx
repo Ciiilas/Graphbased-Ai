@@ -413,7 +413,7 @@ function ChatPanel(props: {
       <div className="messages">
         {props.messages.map((message) => (
           <article key={message.id} className={`message message--${message.role}`}>
-            <pre>{message.text}</pre>
+            <MessageText text={message.text} />
           </article>
         ))}
         {props.isAsking && (
@@ -435,6 +435,112 @@ function ChatPanel(props: {
       </form>
     </section>
   );
+}
+
+function MessageText({ text }: { text: string }) {
+  const lines = text.split("\n");
+  const elements: ReactNode[] = [];
+  let paragraphLines: string[] = [];
+  let bulletLines: string[] = [];
+
+  function flushParagraph() {
+    if (paragraphLines.length === 0) {
+      return;
+    }
+    const key = `paragraph-${elements.length}`;
+    elements.push(
+      <p key={key}>
+        {paragraphLines.map((line, lineIndex) => (
+          <span key={`${key}-${lineIndex}`}>
+            {lineIndex > 0 && <br />}
+            {renderInlineMarkdown(line)}
+          </span>
+        ))}
+      </p>,
+    );
+    paragraphLines = [];
+  }
+
+  function flushBullets() {
+    if (bulletLines.length === 0) {
+      return;
+    }
+    const key = `list-${elements.length}`;
+    elements.push(
+      <ul key={key}>
+        {bulletLines.map((line, lineIndex) => (
+          <li key={`${key}-${lineIndex}`}>{renderInlineMarkdown(line.replace(/^\s*[-*]\s+/, ""))}</li>
+        ))}
+      </ul>,
+    );
+    bulletLines = [];
+  }
+
+  lines.forEach((line) => {
+    const trimmedLine = line.trim();
+    if (!trimmedLine) {
+      flushParagraph();
+      flushBullets();
+      return;
+    }
+
+    if (/^#{1,4}\s+/.test(trimmedLine)) {
+      flushParagraph();
+      flushBullets();
+      elements.push(
+        <h3 key={`heading-${elements.length}`} className="message-heading">
+          {renderInlineMarkdown(trimmedLine.replace(/^#{1,4}\s+/, ""))}
+        </h3>,
+      );
+      return;
+    }
+
+    if (/^\s*[-*]\s+/.test(line)) {
+      flushParagraph();
+      bulletLines.push(line);
+      return;
+    }
+
+    flushBullets();
+    paragraphLines.push(line);
+  });
+
+  flushParagraph();
+  flushBullets();
+
+  return (
+    <div className="message-content">
+      {elements}
+    </div>
+  );
+}
+
+function renderInlineMarkdown(text: string): ReactNode[] {
+  const parts: ReactNode[] = [];
+  const pattern = /(`[^`]+`|\*\*.+?\*\*)/g;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > cursor) {
+      parts.push(text.slice(cursor, match.index));
+    }
+
+    const token = match[0];
+    const key = `${match.index}-${token}`;
+    if (token.startsWith("`")) {
+      parts.push(<code key={key}>{token.slice(1, -1)}</code>);
+    } else {
+      parts.push(<strong key={key}>{renderInlineMarkdown(token.slice(2, -2))}</strong>);
+    }
+    cursor = match.index + token.length;
+  }
+
+  if (cursor < text.length) {
+    parts.push(text.slice(cursor));
+  }
+
+  return parts;
 }
 
 function GraphCanvas({ graph }: { graph: GraphDto }) {
