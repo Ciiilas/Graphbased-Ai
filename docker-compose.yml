@@ -27,3 +27,24 @@ services:
       timeout: 10s
       retries: 12
       start_period: 30s
+
+  chroma:
+    image: chromadb/chroma:1.5.9
+    container_name: graphbased-ai-chroma
+    ports:
+      - "8001:8000"
+    environment:
+      IS_PERSISTENT: "TRUE"
+      PERSIST_DIRECTORY: /data
+    volumes:
+      - ./local-data/chroma:/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v2/heartbeat')\" || exit 1",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s

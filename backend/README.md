@@ -73,3 +73,39 @@ Tests:
 ```bash
 python -m unittest discover -s backend/tests
 ```
+
+## Vector Search (`backend/vector/`)
+
+Liest die vom Extractor erzeugten AST-JSON-Dateien, baut daraus semantische
+Code-Chunks und speichert deren Embeddings in ChromaDB. Die Embeddings werden
+ueber LlamaIndex mit Gemini erzeugt; Neo4j ist fuer diesen Schritt technisch
+nicht erforderlich.
+
+Ausfuehren:
+
+```bash
+python -m backend.vector.cli import-ast --ast-root local-data/ast --reset
+python -m backend.vector.cli search --query "Where is the controller initialized?" --limit 5
+```
+
+Hinweis: Diese Befehle erzeugen Gemini-Embedding-Anfragen. Unit-Tests verwenden
+Fake-Embeddings und rufen Gemini nicht auf.
+
+## Orchestrator (`backend/orchestrator/`)
+
+Verbindet semantische Suche und Graph-Kontext zu einem Prompt fuer spaetere
+LLM-Antworten. Der Orchestrator embeddded die Frage, holt Top-k Treffer aus
+ChromaDB, erweitert diese Treffer ueber Neo4j-Relationen und baut daraus einen
+deduplizierten, gerankten Kontext. Anschliessend kann Gemini mit diesem Prompt
+eine natuerlichsprachliche Antwort erzeugen.
+
+Ausfuehren:
+
+```bash
+python -m backend.orchestrator.cli ask --query "Wie laeuft ein Spielzug durch den Controller?" --top-k 5 --max-neighbors 20 --max-snippets 12
+```
+
+Die Ausgabe enthaelt `answer`, den fertigen `prompt`, semantische Treffer,
+Graph-Relationen, Snippets und Warnungen. Fuer reine Kontext-/Prompt-Pruefung
+ohne generativen LLM-Aufruf kann `--skip-generation` verwendet werden. Die
+Frage-Embeddings benoetigen weiterhin den konfigurierten Embedding-Provider.
