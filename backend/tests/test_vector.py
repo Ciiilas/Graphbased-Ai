@@ -10,7 +10,7 @@ from unittest.mock import patch
 from backend.vector.chunks import CodeChunk, CodeChunkBuilder
 from backend.vector.config import ChromaSettings, GeminiEmbeddingSettings
 from backend.vector.importer import AstVectorImporter, VectorSearchService
-from backend.vector.repository import SearchResult
+from backend.vector.repository import ChromaVectorRepository, SearchResult
 
 
 class FakeEmbeddingProvider:
@@ -334,6 +334,58 @@ class VectorSearchServiceTest(unittest.TestCase):
         self.assertEqual(repository.query_embedding, [0.5, 1.0])
         self.assertEqual(repository.limit, 3)
         self.assertEqual(results[0]["id"], "Sample.scala:function:main:0:10")
+
+
+class ChromaVectorRepositoryTest(unittest.TestCase):
+    def test_get_by_ids_converts_chroma_get_response(self) -> None:
+        class FakeCollection:
+            def __init__(self) -> None:
+                self.ids: list[str] = []
+                self.include: list[str] = []
+
+            def get(self, ids: list[str], include: list[str]) -> dict[str, object]:
+                self.ids = ids
+                self.include = include
+                return {
+                    "ids": ["symbol-1"],
+                    "documents": ["def run(): Unit = ()"],
+                    "metadatas": [{"symbol_id": "symbol-1"}],
+                }
+
+        repository = object.__new__(ChromaVectorRepository)
+        collection = FakeCollection()
+        repository.collection = collection
+
+        results = repository.get_by_ids(["symbol-1"])
+
+        self.assertEqual(collection.ids, ["symbol-1"])
+        self.assertEqual(collection.include, ["documents", "metadatas"])
+        self.assertEqual(results[0].id, "symbol-1")
+        self.assertEqual(results[0].text, "def run(): Unit = ()")
+        self.assertIsNone(results[0].score)
+
+    def test_get_by_ids_realigns_to_requested_order_and_drops_missing(self) -> None:
+        class ShuffledCollection:
+            def get(self, ids: list[str], include: list[str]) -> dict[str, object]:
+                # Chroma may return rows in a different order and omit unknown
+                # ids: requested [a, b, c], returns [c, a] (b unknown).
+                return {
+                    "ids": ["c", "a"],
+                    "documents": ["code-c", "code-a"],
+                    "metadatas": [{"symbol_id": "c"}, {"symbol_id": "a"}],
+                }
+
+        repository = object.__new__(ChromaVectorRepository)
+        repository.collection = ShuffledCollection()
+
+        results = repository.get_by_ids(["a", "b", "c"])
+
+        self.assertEqual([result.id for result in results], ["a", "c"])
+        self.assertEqual(results[0].text, "code-a")
+
+    def test_get_by_ids_returns_empty_for_no_ids(self) -> None:
+        repository = object.__new__(ChromaVectorRepository)
+        self.assertEqual(repository.get_by_ids([]), [])
 
 
 if __name__ == "__main__":

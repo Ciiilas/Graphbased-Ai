@@ -94,6 +94,24 @@ class ChromaVectorRepository:
         )
         return self._search_results(response)
 
+    def get_by_ids(self, ids: list[str]) -> list[SearchResult]:
+        if not ids:
+            return []
+
+        response: dict[str, Any] = self.collection.get(
+            ids=ids,
+            include=["documents", "metadatas"],
+        )
+        results: list[SearchResult] = self._get_results(response)
+
+        # ChromaDB does not guarantee that get() returns rows in the requested
+        # id order, and silently omits ids it does not know. Realign to the
+        # caller's order so positional zipping in the orchestrator is safe.
+        results_by_id: dict[str, SearchResult] = {
+            result.id: result for result in results
+        }
+        return [results_by_id[item_id] for item_id in ids if item_id in results_by_id]
+
     def _collection_names(self) -> set[str]:
         collections: list[Any] = self.client.list_collections()
         names: set[str] = set()
@@ -124,3 +142,19 @@ class ChromaVectorRepository:
             )
         return results
 
+    def _get_results(self, response: dict[str, Any]) -> list[SearchResult]:
+        ids: list[str] = response.get("ids", [])
+        documents: list[str | None] = response.get("documents", [])
+        metadatas: list[dict[str, Any] | None] = response.get("metadatas", [])
+
+        results: list[SearchResult] = []
+        for index, item_id in enumerate(ids):
+            results.append(
+                SearchResult(
+                    id=str(item_id),
+                    text=str(documents[index] or "") if index < len(documents) else "",
+                    score=None,
+                    metadata=metadatas[index] or {} if index < len(metadatas) else {},
+                )
+            )
+        return results
