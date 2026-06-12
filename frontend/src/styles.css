@@ -382,7 +382,7 @@ button:disabled {
 }
 
 .react-flow__node.graph-node {
-  width: 220px;
+  width: 286px;
   border-radius: 7px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(17, 24, 22, 0.94);
@@ -394,22 +394,28 @@ button:disabled {
   box-shadow: 0 12px 28px rgba(3, 7, 18, 0.28);
 }
 
-.graph-node__content {
+.uml-node {
   display: grid;
-  gap: 6px;
-  padding: 10px 11px;
+  min-height: 148px;
 }
 
-.graph-node__content strong {
+.uml-node__header {
+  display: grid;
+  gap: 6px;
+  padding: 11px 12px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.uml-node__header strong {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: #fff7ed;
-  font-size: 13px;
+  font-size: 14px;
 }
 
-.graph-node__content small {
+.uml-node__header small {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -417,6 +423,41 @@ button:disabled {
   color: #9eada4;
   font-size: 11px;
   font-weight: 500;
+}
+
+.uml-node__section {
+  display: grid;
+  gap: 4px;
+  min-height: 34px;
+  padding: 9px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.uml-node__section:last-child {
+  border-bottom: 0;
+}
+
+.uml-node__section span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #dbe7df;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.uml-node__section--methods span {
+  color: #fed7aa;
+}
+
+.uml-node__empty {
+  color: #6f7c75 !important;
+  font-family: inherit !important;
+  font-style: italic;
+  font-weight: 500 !important;
 }
 
 .graph-node__kind {
@@ -532,7 +573,12 @@ button:disabled {
 
 .react-flow__edge-text {
   font-size: 10px;
-  fill: #4e5b52;
+  font-weight: 700;
+  fill: #fed7aa;
+}
+
+.react-flow__edge-textbg {
+  fill: rgba(13, 17, 16, 0.86);
 }
 
 .react-flow__edge.graph-edge path {

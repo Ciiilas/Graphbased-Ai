@@ -13,6 +13,7 @@ import ReactFlow, {
   Controls,
   MiniMap,
   Panel,
+  Position,
   type Edge,
   type Node,
 } from "reactflow";
@@ -29,13 +30,31 @@ import {
   Upload,
 } from "lucide-react";
 import { askQuestion, indexPath, loadGraph, uploadAndIndex } from "./api";
-import type { ChatMessage, GraphDto, GraphEdgeDto, GraphNodeDto } from "./types";
+import type { ChatMessage, GraphDto, GraphNodeDto } from "./types";
 
 type ViewMode = "chat" | "graph";
 type Point = {
   x: number;
   y: number;
 };
+type UmlNodeModel = {
+  id: string;
+  kind: string;
+  title: string;
+  context: string;
+  group: string;
+  attributes: string[];
+  methods: string[];
+};
+type UmlEdgeModel = {
+  source: string;
+  target: string;
+  type: string;
+  count: number;
+};
+
+const UML_CONTAINER_KINDS = new Set(["class", "object", "trait", "enum"]);
+const UML_EDGE_TYPES = new Set(["CALLS", "EXTENDS", "INSTANTIATES", "USES"]);
 
 const initialMessages: ChatMessage[] = [
   {
@@ -419,49 +438,45 @@ function ChatPanel(props: {
 }
 
 function GraphCanvas({ graph }: { graph: GraphDto }) {
-  const codeNodes = useMemo(() => {
-    return graph.nodes
-      .filter(isVisibleCodeNode)
-      .sort((left, right) => codeNodeRank(left) - codeNodeRank(right));
+  const nodeById = useMemo(() => {
+    return new Map(graph.nodes.map((node) => [node.id, node]));
   }, [graph.nodes]);
 
-  const visibleNodeIds = useMemo(() => {
-    return new Set(codeNodes.map((node) => node.id));
-  }, [codeNodes]);
+  const umlModels = useMemo(() => buildUmlModels(graph.nodes), [graph.nodes]);
+
+  const visibleUmlIds = useMemo(() => {
+    return new Set(umlModels.map((node) => node.id));
+  }, [umlModels]);
+
+  const umlEdges = useMemo(() => {
+    return buildUmlEdges(graph.edges, nodeById, visibleUmlIds);
+  }, [graph.edges, nodeById, visibleUmlIds]);
 
   const nodes = useMemo<Node[]>(() => {
-    const count = Math.max(codeNodes.length, 1);
-    const columns = Math.max(2, Math.ceil(Math.sqrt(count)));
-    const columnWidth = 250;
-    const rowHeight = 116;
-    return codeNodes.map((node, index) => {
-      const column = index % columns;
-      const row = Math.floor(index / columns);
+    return layoutUmlModels(umlModels, umlEdges).map(({ node, position }) => {
       return {
         id: node.id,
-        data: { label: graphNodeLabel(node) },
-        position: {
-          x: column * columnWidth,
-          y: row * rowHeight,
-        },
-        className: `graph-node graph-node--${nodeKind(node).toLowerCase()}`,
+        data: { label: umlNodeLabel(node) },
+        position,
+        sourcePosition: Position.Right,
+        targetPosition: Position.Left,
+        className: `graph-node graph-node--${node.kind.toLowerCase()}`,
       };
     });
-  }, [codeNodes]);
+  }, [umlModels, umlEdges]);
 
   const edges = useMemo<Edge[]>(() => {
-    return graph.edges
-      .filter((edge) => isVisibleCodeEdge(edge))
-      .filter((edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target))
-      .map((edge, index) => ({
-        id: `${edge.source}-${edge.type}-${edge.target}-${index}`,
-        source: edge.source,
-        target: edge.target,
-        animated: edge.type === "CALLS",
-        className: `graph-edge graph-edge--${edge.type.toLowerCase()}`,
-        data: { type: edge.type },
-      }));
-  }, [graph.edges, visibleNodeIds]);
+    return umlEdges.map((edge, index) => ({
+      id: `${edge.source}-${edge.type}-${edge.target}-${index}`,
+      source: edge.source,
+      target: edge.target,
+      label: edgeLabel(edge.type, edge.count),
+      animated: edge.type === "CALLS",
+      type: "smoothstep",
+      className: `graph-edge graph-edge--${edge.type.toLowerCase()}`,
+      data: { type: edge.type },
+    }));
+  }, [umlEdges]);
 
   return (
     <ReactFlow
@@ -478,7 +493,7 @@ function GraphCanvas({ graph }: { graph: GraphDto }) {
       <MiniMap position="top-right" pannable zoomable />
       {nodes.length > 0 && (
         <Panel className="graph-summary-panel" position="top-center">
-          {nodes.length} Code-Knoten · {edges.length} Beziehungen
+          {nodes.length} UML-Typen · {edges.length} Beziehungen
         </Panel>
       )}
       {nodes.length === 0 && (
@@ -490,17 +505,229 @@ function GraphCanvas({ graph }: { graph: GraphDto }) {
   );
 }
 
-function graphNodeLabel(node: GraphNodeDto) {
-  const kind = nodeKind(node);
-  const title = truncate(String(node.label || node.properties.name || node.id), 32);
-  const context = graphNodeContext(node);
+function buildUmlModels(nodes: GraphNodeDto[]): UmlNodeModel[] {
+  const containers = nodes
+    .filter(isUmlContainerNode)
+    .sort((left, right) => {
+      const byKind = umlNodeRank(left) - umlNodeRank(right);
+      if (byKind !== 0) {
+        return byKind;
+      }
+      return String(left.label).localeCompare(String(right.label));
+    });
+  const methodsByParent = new Map<string, string[]>();
+  const attributesByParent = new Map<string, string[]>();
+  const methodsByContainer = new Map<string, GraphNodeDto[]>();
+
+  nodes.forEach((node) => {
+    const parentId = String(node.properties.parent_id || "");
+    if (!parentId) {
+      return;
+    }
+
+    if (nodeKind(node) === "function") {
+      const methods = methodsByParent.get(parentId) ?? [];
+      methods.push(formatMember(node, "method"));
+      methodsByParent.set(parentId, methods);
+      const methodNodes = methodsByContainer.get(parentId) ?? [];
+      methodNodes.push(node);
+      methodsByContainer.set(parentId, methodNodes);
+    }
+  });
+
+  nodes.forEach((node) => {
+    const parentId = String(node.properties.parent_id || "");
+    if (!parentId) {
+      return;
+    }
+
+    if (["val", "var", "enum_case"].includes(nodeKind(node)) && isClassLevelAttribute(node, methodsByContainer.get(parentId) ?? [])) {
+      const attributes = attributesByParent.get(parentId) ?? [];
+      attributes.push(formatMember(node, "attribute"));
+      attributesByParent.set(parentId, attributes);
+    }
+  });
+
+  return containers.map((node) => ({
+    id: node.id,
+    kind: nodeKind(node),
+    title: truncate(String(node.label || node.properties.name || node.id), 34),
+    context: graphNodeContext(node),
+    group: umlGroup(node),
+    attributes: sortMembers(attributesByParent.get(node.id) ?? []).slice(0, 8),
+    methods: sortMembers(methodsByParent.get(node.id) ?? []).slice(0, 12),
+  }));
+}
+
+function buildUmlEdges(
+  graphEdges: GraphDto["edges"],
+  nodeById: Map<string, GraphNodeDto>,
+  visibleUmlIds: Set<string>,
+): UmlEdgeModel[] {
+  const edgeByKey = new Map<string, UmlEdgeModel>();
+
+  graphEdges
+    .filter((edge) => UML_EDGE_TYPES.has(edge.type))
+    .forEach((edge) => {
+      const source = ownerUmlNodeId(edge.source, nodeById);
+      const target = ownerUmlNodeId(edge.target, nodeById);
+      if (!source || !target || source === target) {
+        return;
+      }
+      if (!visibleUmlIds.has(source) || !visibleUmlIds.has(target)) {
+        return;
+      }
+
+      const key = `${source}-${edge.type}-${target}`;
+      const existing = edgeByKey.get(key);
+      if (existing) {
+        existing.count += 1;
+        return;
+      }
+      edgeByKey.set(key, { source, target, type: edge.type, count: 1 });
+    });
+
+  return Array.from(edgeByKey.values()).sort((left, right) => {
+    const bySource = left.source.localeCompare(right.source);
+    if (bySource !== 0) {
+      return bySource;
+    }
+    const byTarget = left.target.localeCompare(right.target);
+    if (byTarget !== 0) {
+      return byTarget;
+    }
+    return left.type.localeCompare(right.type);
+  });
+}
+
+function layoutUmlModels(
+  models: UmlNodeModel[],
+  edges: UmlEdgeModel[],
+): Array<{ node: UmlNodeModel; position: Point }> {
+  const modelById = new Map(models.map((model) => [model.id, model]));
+  const connectedIds = new Set(edges.flatMap((edge) => [edge.source, edge.target]));
+  const groups = new Map<string, UmlNodeModel[]>();
+
+  models.forEach((model) => {
+    const groupModels = groups.get(model.group) ?? [];
+    groupModels.push(model);
+    groups.set(model.group, groupModels);
+  });
+
+  const orderedGroups = Array.from(groups.entries()).sort((left, right) => {
+    const byRank = umlGroupRank(left[0]) - umlGroupRank(right[0]);
+    if (byRank !== 0) {
+      return byRank;
+    }
+    return left[0].localeCompare(right[0]);
+  });
+
+  const positions = new Map<string, Point>();
+  const columnWidth = 380;
+  const rowGap = 34;
+
+  orderedGroups.forEach(([group, groupModels], column) => {
+    const incomingById = incomingWeightById(groupModels, edges);
+    const outgoingById = outgoingWeightById(groupModels, edges);
+    const sortedModels = [...groupModels].sort((left, right) => {
+      const leftConnected = connectedIds.has(left.id) ? 0 : 1;
+      const rightConnected = connectedIds.has(right.id) ? 0 : 1;
+      if (leftConnected !== rightConnected) {
+        return leftConnected - rightConnected;
+      }
+      const byKind = umlKindRank(left.kind) - umlKindRank(right.kind);
+      if (byKind !== 0) {
+        return byKind;
+      }
+      const byTraffic =
+        (incomingById.get(right.id) ?? 0) +
+        (outgoingById.get(right.id) ?? 0) -
+        ((incomingById.get(left.id) ?? 0) + (outgoingById.get(left.id) ?? 0));
+      if (byTraffic !== 0) {
+        return byTraffic;
+      }
+      return left.title.localeCompare(right.title);
+    });
+
+    let y = 0;
+    sortedModels.forEach((model) => {
+      positions.set(model.id, {
+        x: column * columnWidth,
+        y,
+      });
+      y += estimateUmlNodeHeight(model) + rowGap;
+    });
+
+    if (group && sortedModels.length > 0) {
+      const groupOffset = umlGroupRank(group) % 2 === 0 ? 0 : 36;
+      sortedModels.forEach((model) => {
+        const position = positions.get(model.id);
+        if (position) {
+          position.y += groupOffset;
+        }
+      });
+    }
+  });
+
+  return models.map((node) => ({
+    node,
+    position: positions.get(node.id) ?? { x: 0, y: 0 },
+  }));
+}
+
+function umlNodeLabel(node: UmlNodeModel) {
   return (
-    <div className="graph-node__content">
-      <span className="graph-node__kind">{kindLabel(kind)}</span>
-      <strong>{title}</strong>
-      {context && <small>{context}</small>}
+    <div className="uml-node">
+      <header className="uml-node__header">
+        <span className="graph-node__kind">{kindLabel(node.kind)}</span>
+        <strong>{node.title}</strong>
+        {node.context && <small>{node.context}</small>}
+      </header>
+      <section className="uml-node__section">
+        {node.attributes.length > 0 ? (
+          node.attributes.map((attribute) => <span key={attribute}>{attribute}</span>)
+        ) : (
+          <span className="uml-node__empty">keine Felder</span>
+        )}
+      </section>
+      <section className="uml-node__section uml-node__section--methods">
+        {node.methods.length > 0 ? (
+          node.methods.map((method) => <span key={method}>{method}</span>)
+        ) : (
+          <span className="uml-node__empty">keine Methoden</span>
+        )}
+      </section>
     </div>
   );
+}
+
+function estimateUmlNodeHeight(node: UmlNodeModel): number {
+  const headerHeight = node.context ? 76 : 58;
+  const attributeRows = Math.max(1, node.attributes.length);
+  const methodRows = Math.max(1, node.methods.length);
+  return headerHeight + attributeRows * 17 + methodRows * 17 + 54;
+}
+
+function incomingWeightById(models: UmlNodeModel[], edges: UmlEdgeModel[]): Map<string, number> {
+  const ids = new Set(models.map((model) => model.id));
+  const weights = new Map<string, number>();
+  edges.forEach((edge) => {
+    if (ids.has(edge.target)) {
+      weights.set(edge.target, (weights.get(edge.target) ?? 0) + edge.count);
+    }
+  });
+  return weights;
+}
+
+function outgoingWeightById(models: UmlNodeModel[], edges: UmlEdgeModel[]): Map<string, number> {
+  const ids = new Set(models.map((model) => model.id));
+  const weights = new Map<string, number>();
+  edges.forEach((edge) => {
+    if (ids.has(edge.source)) {
+      weights.set(edge.source, (weights.get(edge.source) ?? 0) + edge.count);
+    }
+  });
+  return weights;
 }
 
 function nodeKind(node: GraphNodeDto): string {
@@ -516,34 +743,67 @@ function nodeKind(node: GraphNodeDto): string {
   return String(node.properties.kind || "Symbol");
 }
 
-function isVisibleCodeNode(node: GraphNodeDto): boolean {
-  if (node.labels.includes("ExternalImport") || node.labels.includes("Call")) {
-    return false;
-  }
-
-  if (node.labels.includes("File")) {
-    return true;
-  }
-
-  const kind = String(node.properties.kind || "");
-  return ["package", "class", "object", "trait", "enum", "function"].includes(kind);
+function isUmlContainerNode(node: GraphNodeDto): boolean {
+  return UML_CONTAINER_KINDS.has(nodeKind(node));
 }
 
-function isVisibleCodeEdge(edge: GraphEdgeDto): boolean {
-  return ["DECLARES", "CALLS", "EXTENDS", "DEPENDS_ON", "INSTANTIATES"].includes(edge.type);
-}
-
-function codeNodeRank(node: GraphNodeDto): number {
+function umlNodeRank(node: GraphNodeDto): number {
   const order: Record<string, number> = {
-    File: 0,
-    package: 1,
-    class: 2,
+    trait: 0,
+    class: 1,
     object: 2,
-    trait: 2,
-    enum: 2,
-    function: 3,
+    enum: 3,
   };
   return order[nodeKind(node)] ?? 9;
+}
+
+function umlKindRank(kind: string): number {
+  const order: Record<string, number> = {
+    trait: 0,
+    class: 1,
+    object: 2,
+    enum: 3,
+  };
+  return order[kind] ?? 9;
+}
+
+function umlGroup(node: GraphNodeDto): string {
+  const sourcePath = String(node.properties.source_path || node.properties.path || "");
+  const fqn = String(node.properties.fqn || "");
+  const value = `${sourcePath}/${fqn}`.toLowerCase();
+
+  if (value.includes("/src/test/") || value.includes(".spec")) {
+    return "Tests";
+  }
+  if (value.includes("/util/") || value.includes(".util.")) {
+    return "Util";
+  }
+  if (value.includes("/model/") || value.includes(".model.")) {
+    return "Model";
+  }
+  if (value.includes("/controller/") || value.includes(".controller.")) {
+    return "Controller";
+  }
+  if (value.includes("/aview/") || value.includes(".aview.") || value.includes("/view/")) {
+    return "View";
+  }
+  if (value.includes("/fileio") || value.includes(".fileio")) {
+    return "IO";
+  }
+  return "Core";
+}
+
+function umlGroupRank(group: string): number {
+  const order: Record<string, number> = {
+    Util: 0,
+    Model: 1,
+    Controller: 2,
+    View: 3,
+    IO: 4,
+    Core: 5,
+    Tests: 6,
+  };
+  return order[group] ?? 99;
 }
 
 function kindLabel(kind: string): string {
@@ -571,6 +831,93 @@ function graphNodeContext(node: GraphNodeDto): string {
   }
 
   return "";
+}
+
+function ownerUmlNodeId(nodeId: string, nodeById: Map<string, GraphNodeDto>): string | null {
+  const node = nodeById.get(nodeId);
+  if (!node) {
+    return null;
+  }
+  if (isUmlContainerNode(node)) {
+    return node.id;
+  }
+
+  const parentId = String(node.properties.parent_id || "");
+  const parent = parentId ? nodeById.get(parentId) : null;
+  if (parent && isUmlContainerNode(parent)) {
+    return parent.id;
+  }
+
+  return null;
+}
+
+function formatMember(node: GraphNodeDto, type: "attribute" | "method"): string {
+  const name = String(node.properties.name || node.label || node.id);
+  const metadata = parseMetadata(node.properties.metadata_json);
+  if (type === "method") {
+    const parameters = typeof metadata.parameters === "string" ? metadata.parameters : "()";
+    const returnType = typeof metadata.return_type === "string" ? `: ${metadata.return_type}` : "";
+    return `+ ${truncate(name, 26)}${truncate(parameters, 36)}${returnType}`;
+  }
+
+  const prefix = nodeKind(node) === "var" ? "~" : "+";
+  const valueType = typeof metadata.type === "string" ? `: ${metadata.type}` : "";
+  return `${prefix} ${truncate(name, 34)}${valueType}`;
+}
+
+function isClassLevelAttribute(node: GraphNodeDto, siblingMethods: GraphNodeDto[]): boolean {
+  if (nodeKind(node) === "enum_case") {
+    return true;
+  }
+
+  const startByte = numericProperty(node.properties.start_byte);
+  if (startByte === null) {
+    return true;
+  }
+
+  return !siblingMethods.some((method) => {
+    const methodStart = numericProperty(method.properties.start_byte);
+    const methodEnd = numericProperty(method.properties.end_byte);
+    return methodStart !== null && methodEnd !== null && startByte > methodStart && startByte < methodEnd;
+  });
+}
+
+function numericProperty(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function parseMetadata(value: unknown): Record<string, unknown> {
+  if (typeof value !== "string" || !value) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function sortMembers(members: string[]): string[] {
+  return [...members].sort((left, right) => left.localeCompare(right));
+}
+
+function edgeLabel(type: string, count: number): string {
+  const labels: Record<string, string> = {
+    CALLS: "calls",
+    EXTENDS: "extends",
+    INSTANTIATES: "creates",
+    USES: "uses",
+  };
+  const label = labels[type] ?? type.toLowerCase();
+  return count > 1 ? `${label} (${count})` : label;
 }
 
 function compactPath(path: string): string {

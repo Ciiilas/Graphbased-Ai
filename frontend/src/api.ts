@@ -67,6 +67,6 @@ export function askQuestion(query: string): Promise<ChatResponse> {
   });
 }
 
-export function loadGraph(limit = 350): Promise<GraphDto> {
+export function loadGraph(limit = 1000): Promise<GraphDto> {
   return request<GraphDto>(`/api/graph?limit=${limit}`);
 }
