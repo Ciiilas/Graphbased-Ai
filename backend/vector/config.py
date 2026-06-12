@@ -28,7 +28,7 @@ class GeminiEmbeddingSettings:
     """Gemini embedding settings loaded from environment variables."""
 
     api_key: str | None = None
-    model_name: str = "gemini-embedding-001"
+    model_name: str = "gemini-embedding-2"
 
     @classmethod
     def from_env(cls) -> "GeminiEmbeddingSettings":
