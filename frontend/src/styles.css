@@ -201,11 +201,11 @@ button:disabled {
 
 .chat-panel--compact {
   height: min(760px, calc(100vh - 92px));
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
-  box-shadow: 0 18px 52px rgba(3, 7, 18, 0.34);
-  background: rgba(13, 17, 16, 0.92);
-  backdrop-filter: blur(14px);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  backdrop-filter: none;
 }
 
 .messages {
@@ -306,10 +306,71 @@ button:disabled {
 
 .floating-chat {
   position: absolute;
-  left: 18px;
-  top: 18px;
+  left: 0;
+  top: 0;
   width: min(410px, calc(100vw - 36px));
   z-index: 3;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(13, 17, 16, 0.92);
+  box-shadow: 0 18px 52px rgba(3, 7, 18, 0.34);
+  backdrop-filter: blur(14px);
+  touch-action: none;
+  user-select: none;
+}
+
+.floating-chat--collapsed {
+  width: 178px;
+}
+
+.floating-chat__titlebar {
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 8px 0 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, rgba(29, 40, 36, 0.96), rgba(13, 17, 16, 0.94));
+  color: #f4f8f5;
+  cursor: grab;
+}
+
+.floating-chat__titlebar:active {
+  cursor: grabbing;
+}
+
+.floating-chat__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.floating-chat__title svg:first-child {
+  color: #77857d;
+}
+
+.floating-chat__title svg:nth-child(2) {
+  color: #fb923c;
+}
+
+.floating-chat__collapse {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #f4f8f5;
+}
+
+.floating-chat__collapse:hover {
+  background: rgba(249, 115, 22, 0.22);
 }
 
 .hidden-input {
@@ -540,5 +601,13 @@ button:disabled {
   .react-flow__controls {
     right: 12px;
     bottom: 12px;
+  }
+
+  .floating-chat {
+    width: min(360px, calc(100vw - 24px));
+  }
+
+  .floating-chat--collapsed {
+    width: 178px;
   }
 }

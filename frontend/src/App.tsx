@@ -1,4 +1,13 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type FormEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import ReactFlow, {
   Background,
   Controls,
@@ -9,9 +18,12 @@ import ReactFlow, {
 } from "reactflow";
 import {
   FolderOpen,
+  GripHorizontal,
   Loader2,
   MessageSquare,
   Network,
+  PanelLeftClose,
+  PanelLeftOpen,
   RefreshCw,
   Send,
   Upload,
@@ -20,6 +32,10 @@ import { askQuestion, indexPath, loadGraph, uploadAndIndex } from "./api";
 import type { ChatMessage, GraphDto, GraphEdgeDto, GraphNodeDto } from "./types";
 
 type ViewMode = "chat" | "graph";
+type Point = {
+  x: number;
+  y: number;
+};
 
 const initialMessages: ChatMessage[] = [
   {
@@ -38,8 +54,11 @@ function App() {
   const [isAsking, setIsAsking] = useState(false);
   const [isIndexing, setIsIndexing] = useState(false);
   const [isGraphLoading, setIsGraphLoading] = useState(false);
+  const [isGraphChatCollapsed, setIsGraphChatCollapsed] = useState(false);
+  const [graphChatPosition, setGraphChatPosition] = useState<Point>({ x: 18, y: 18 });
   const [status, setStatus] = useState("Bereit");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const graphLayoutRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (fileInputRef.current) {
@@ -194,9 +213,15 @@ function App() {
           />
         </section>
       ) : (
-        <section className="graph-layout">
+        <section ref={graphLayoutRef} className="graph-layout">
           <GraphCanvas graph={graph} />
-          <div className="floating-chat">
+          <GraphChatWindow
+            collapsed={isGraphChatCollapsed}
+            position={graphChatPosition}
+            setCollapsed={setIsGraphChatCollapsed}
+            setPosition={setGraphChatPosition}
+            boundsRef={graphLayoutRef}
+          >
             <ChatPanel
               messages={messages}
               question={question}
@@ -205,7 +230,7 @@ function App() {
               onAsk={handleAsk}
               compact
             />
-          </div>
+          </GraphChatWindow>
         </section>
       )}
 
@@ -217,6 +242,105 @@ function App() {
         onChange={(event) => void handleFolderUpload(event.currentTarget.files)}
       />
     </main>
+  );
+}
+
+function GraphChatWindow(props: {
+  collapsed: boolean;
+  position: Point;
+  setCollapsed: (value: boolean) => void;
+  setPosition: (value: Point) => void;
+  boundsRef: RefObject<HTMLElement>;
+  children: ReactNode;
+}) {
+  const windowRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+  } | null>(null);
+
+  function clampPosition(nextPosition: Point): Point {
+    const bounds = props.boundsRef.current;
+    const chatWindow = windowRef.current;
+    const width = chatWindow?.offsetWidth ?? 410;
+    const height = chatWindow?.offsetHeight ?? 520;
+    const boundsWidth = bounds?.clientWidth ?? window.innerWidth;
+    const boundsHeight = bounds?.clientHeight ?? window.innerHeight;
+    const padding = 12;
+
+    return {
+      x: Math.min(Math.max(nextPosition.x, padding), Math.max(padding, boundsWidth - width - padding)),
+      y: Math.min(Math.max(nextPosition.y, padding), Math.max(padding, boundsHeight - height - padding)),
+    };
+  }
+
+  function handleDragStart(event: ReactPointerEvent<HTMLDivElement>) {
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: props.position.x,
+      originY: props.position.y,
+    };
+  }
+
+  function handleDragMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) {
+      return;
+    }
+
+    props.setPosition(
+      clampPosition({
+        x: drag.originX + event.clientX - drag.startX,
+        y: drag.originY + event.clientY - drag.startY,
+      }),
+    );
+  }
+
+  function handleDragEnd(event: ReactPointerEvent<HTMLDivElement>) {
+    if (dragRef.current?.pointerId === event.pointerId) {
+      dragRef.current = null;
+    }
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  return (
+    <div
+      ref={windowRef}
+      className={props.collapsed ? "floating-chat floating-chat--collapsed" : "floating-chat"}
+      style={{ transform: `translate(${props.position.x}px, ${props.position.y}px)` }}
+    >
+      <div
+        className="floating-chat__titlebar"
+        onPointerDown={handleDragStart}
+        onPointerMove={handleDragMove}
+        onPointerUp={handleDragEnd}
+        onPointerCancel={handleDragEnd}
+      >
+        <span className="floating-chat__title">
+          <GripHorizontal size={16} />
+          <MessageSquare size={16} />
+          Chat
+        </span>
+        <button
+          className="floating-chat__collapse"
+          type="button"
+          title={props.collapsed ? "Chat ausklappen" : "Chat einklappen"}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={() => props.setCollapsed(!props.collapsed)}
+        >
+          {props.collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+        </button>
+      </div>
+      {!props.collapsed && props.children}
+    </div>
   );
 }
 
