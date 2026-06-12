@@ -8,7 +8,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 from backend.vector.chunks import CodeChunk, CodeChunkBuilder
-from backend.vector.config import ChromaSettings, GeminiEmbeddingSettings
+from backend.vector.config import (
+    ChromaSettings,
+    GeminiEmbeddingSettings,
+    GeminiGenerationSettings,
+)
 from backend.vector.importer import AstVectorImporter, VectorSearchService
 from backend.vector.repository import ChromaVectorRepository, SearchResult
 
@@ -87,6 +91,18 @@ class VectorSettingsTest(unittest.TestCase):
 
         self.assertEqual(settings.api_key, "secret")
         self.assertEqual(settings.model_name, "custom-model")
+
+    def test_gemini_generation_settings_from_env(self) -> None:
+        environment = {
+            "GEMINI_SECRET_KEY": "secret",
+            "GEMINI_GENERATION_MODEL": "gemini-3.5-flash",
+        }
+
+        with patch.dict(os.environ, environment, clear=False):
+            settings = GeminiGenerationSettings.from_env()
+
+        self.assertEqual(settings.api_key, "secret")
+        self.assertEqual(settings.model_name, "gemini-3.5-flash")
 
 
 class CodeChunkBuilderTest(unittest.TestCase):
