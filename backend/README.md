@@ -73,3 +73,20 @@ Tests:
 ```bash
 python -m unittest discover -s backend/tests
 ```
+
+## Vector Search (`backend/vector/`)
+
+Liest die vom Extractor erzeugten AST-JSON-Dateien, baut daraus semantische
+Code-Chunks und speichert deren Embeddings in ChromaDB. Die Embeddings werden
+ueber LlamaIndex mit Gemini erzeugt; Neo4j ist fuer diesen Schritt technisch
+nicht erforderlich.
+
+Ausfuehren:
+
+```bash
+python -m backend.vector.cli import-ast --ast-root local-data/ast --reset
+python -m backend.vector.cli search --query "Where is the controller initialized?" --limit 5
+```
+
+Hinweis: Diese Befehle erzeugen Gemini-Embedding-Anfragen. Unit-Tests verwenden
+Fake-Embeddings und rufen Gemini nicht auf.
