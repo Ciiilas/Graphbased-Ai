@@ -135,12 +135,22 @@ def run_chroma_import(ast_root: Path, reset: bool) -> bool:
             embedding_provider=embedding_provider,
         )
         summary = importer.import_directory(ast_root, reset=reset)
+        if summary.has_errors:
+            print(
+                f"  [!] ChromaDB: {summary.imported_chunks}/{summary.total_chunks} "
+                f"Chunks gespeichert"
+            )
+            print(f"    {len(summary.failed_files)} Batch/Datei fehlgeschlagen:")
+            for failed_file in summary.failed_files[:5]:
+                print(f"    - {failed_file['path']}: {failed_file['error']}")
+            remaining_errors: int = len(summary.failed_files) - 5
+            if remaining_errors > 0:
+                print(f"    ... plus {remaining_errors} weitere Fehler")
+            return False
         print(
             f"  [OK] ChromaDB: {summary.imported_chunks}/{summary.total_chunks} Chunks "
             f"gespeichert"
         )
-        if summary.has_errors:
-            print(f"    [!] {len(summary.failed_files)} Batch/Datei fehlgeschlagen")
         return True
     except ImportError as error:
         print(f"  [FEHLER] Abhängigkeit fehlt: {error}")
@@ -150,6 +160,61 @@ def run_chroma_import(ast_root: Path, reset: bool) -> bool:
         print(f"  [FEHLER] ChromaDB-Import fehlgeschlagen: {error}")
         print("    Tipp: 'docker compose up -d chroma' und GEMINI_SECRET_KEY prüfen.")
         return False
+
+
+def reset_neo4j_data() -> bool:
+    """Delete all graph nodes and relationships from Neo4j."""
+    print("  -> Loesche Neo4j-Graph ...")
+    try:
+        with Neo4jConnection(Neo4jSettings.from_env()) as connection:
+            connection.verify_connectivity()
+            repository = Neo4jGraphRepository(connection)
+            repository.clear_graph()
+        print("  [OK] Neo4j-Graph geloescht.")
+        return True
+    except Exception as error:
+        print(f"  [FEHLER] Neo4j konnte nicht geloescht werden: {error}")
+        print("    Tipp: 'docker compose up -d neo4j' und Zugangsdaten in .env pruefen.")
+        return False
+
+
+def reset_chroma_data() -> bool:
+    """Delete and recreate the configured ChromaDB collection."""
+    print("  -> Loesche ChromaDB-Collection ...")
+    try:
+        repository = ChromaVectorRepository(ChromaSettings.from_env())
+        repository.reset_collection()
+        print(
+            "  [OK] ChromaDB-Collection "
+            f"'{repository.settings.collection}' geloescht und leer neu angelegt."
+        )
+        return True
+    except ImportError as error:
+        print(f"  [FEHLER] Abhaengigkeit fehlt: {error}")
+        print("    Tipp: 'pip install -r requirements.txt' ausfuehren.")
+        return False
+    except Exception as error:
+        print(f"  [FEHLER] ChromaDB konnte nicht geloescht werden: {error}")
+        print("    Tipp: 'docker compose up -d chroma' und CHROMA_HOST/CHROMA_PORT pruefen.")
+        return False
+
+
+def reset_backend_data(use_neo4j: bool, use_chroma: bool) -> bool:
+    """Reset selected persistent backends."""
+    print("\n=== Daten zuruecksetzen ===")
+    results: list[bool] = []
+    if use_neo4j:
+        results.append(reset_neo4j_data())
+    if use_chroma:
+        results.append(reset_chroma_data())
+    if not results:
+        print("  Keine Datenbank ausgewaehlt.")
+        return False
+    if all(results):
+        print("=== Reset abgeschlossen ===\n")
+        return True
+    print("=== Reset mit Fehlern abgeschlossen ===\n")
+    return False
 
 
 def index_codebase(
@@ -163,10 +228,14 @@ def index_codebase(
     print("\n=== Indexierung ===")
     if not run_extraction(source, ast_root):
         return
+    import_results: list[bool] = []
     if use_neo4j:
-        run_neo4j_import(ast_root, reset=reset)
+        import_results.append(run_neo4j_import(ast_root, reset=reset))
     if use_chroma:
-        run_chroma_import(ast_root, reset=reset)
+        import_results.append(run_chroma_import(ast_root, reset=reset))
+    if import_results and not all(import_results):
+        print("=== Indexierung mit Fehlern abgeschlossen ===\n")
+        return
     print("=== Indexierung abgeschlossen ===\n")
 
 
@@ -293,7 +362,8 @@ def interactive_menu() -> None:
         print("\nWas möchtest du tun?")
         print("  1) Codebase indexieren (extract -> Neo4j -> ChromaDB)")
         print("  2) Fragen stellen")
-        print("  3) Beenden")
+        print("  3) Neo4j + ChromaDB zuruecksetzen")
+        print("  4) Beenden")
         choice: str = input("Auswahl> ").strip()
 
         if choice == "1":
@@ -310,7 +380,17 @@ def interactive_menu() -> None:
             )
         elif choice == "2":
             ask_loop(top_k=5, max_neighbors=20, max_snippets=12)
-        elif choice in {"3", "exit", "quit"}:
+        elif choice == "3":
+            print(
+                "\nAchtung: Das loescht alle analysierten Daten in Neo4j "
+                "und die konfigurierte ChromaDB-Collection."
+            )
+            confirmation: str = input("Zum Bestaetigen RESET eingeben> ").strip()
+            if confirmation != "RESET":
+                print("  Abgebrochen.")
+                continue
+            reset_backend_data(use_neo4j=True, use_chroma=True)
+        elif choice in {"4", "exit", "quit"}:
             print("Tschüss!")
             return
         else:
@@ -353,6 +433,26 @@ def build_argument_parser() -> argparse.ArgumentParser:
     ask_parser.add_argument("--max-neighbors", type=int, default=20)
     ask_parser.add_argument("--max-snippets", type=int, default=12)
 
+    reset_parser = subcommands.add_parser(
+        "reset",
+        help="Neo4j-Graph und ChromaDB-Collection loeschen.",
+    )
+    reset_parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Bestaetigt das Loeschen ohne interaktive Rueckfrage.",
+    )
+    reset_parser.add_argument(
+        "--skip-neo4j",
+        action="store_true",
+        help="Neo4j nicht loeschen.",
+    )
+    reset_parser.add_argument(
+        "--skip-chroma",
+        action="store_true",
+        help="ChromaDB nicht loeschen.",
+    )
+
     return parser
 
 
@@ -379,6 +479,16 @@ def main() -> int:
             max_neighbors=arguments.max_neighbors,
             max_snippets=arguments.max_snippets,
         )
+
+    if arguments.command == "reset":
+        if not arguments.yes:
+            print("Reset abgebrochen. Zum Loeschen bitte '--yes' angeben.")
+            return 1
+        success = reset_backend_data(
+            use_neo4j=not arguments.skip_neo4j,
+            use_chroma=not arguments.skip_chroma,
+        )
+        return 0 if success else 1
 
     # No subcommand -> interactive mode.
     try:
