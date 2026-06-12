@@ -10,8 +10,13 @@ from typing import Any
 from backend.db.config import Neo4jSettings
 from backend.db.connection import Neo4jConnection
 from backend.orchestrator.graph import GraphContextRepository
+from backend.orchestrator.llm import GeminiAnswerProvider
 from backend.orchestrator.service import CodeQuestionOrchestrator
-from backend.vector.config import ChromaSettings, GeminiEmbeddingSettings
+from backend.vector.config import (
+    ChromaSettings,
+    GeminiEmbeddingSettings,
+    GeminiGenerationSettings,
+)
 from backend.vector.embeddings import LlamaIndexGeminiEmbeddingProvider
 from backend.vector.repository import ChromaVectorRepository
 
@@ -49,6 +54,11 @@ def build_argument_parser() -> argparse.ArgumentParser:
         default=12,
         help="Maximum number of snippets included in the prompt.",
     )
+    ask_parser.add_argument(
+        "--skip-generation",
+        action="store_true",
+        help="Build retrieval context and prompt without calling the generative LLM.",
+    )
 
     return argument_parser
 
@@ -65,6 +75,11 @@ def main() -> int:
         embedding_provider = LlamaIndexGeminiEmbeddingProvider(
             GeminiEmbeddingSettings.from_env()
         )
+        answer_provider = (
+            None
+            if arguments.skip_generation
+            else GeminiAnswerProvider(GeminiGenerationSettings.from_env())
+        )
         with Neo4jConnection(Neo4jSettings.from_env()) as connection:
             connection.verify_connectivity()
             graph_repository = GraphContextRepository(connection)
@@ -72,12 +87,14 @@ def main() -> int:
                 embedding_provider=embedding_provider,
                 vector_repository=vector_repository,
                 graph_repository=graph_repository,
+                answer_provider=answer_provider,
             )
             response = orchestrator.answer(
                 query=arguments.query,
                 top_k=arguments.top_k,
                 max_neighbors=arguments.max_neighbors,
                 max_snippets=arguments.max_snippets,
+                generate=not arguments.skip_generation,
             )
         print(json.dumps(response.to_dict(), ensure_ascii=False, indent=2))
         return 0

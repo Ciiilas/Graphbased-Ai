@@ -26,6 +26,15 @@ class FakeEmbeddingProvider:
         return [0.1, 0.2]
 
 
+class FakeAnswerProvider:
+    def __init__(self) -> None:
+        self.prompts: list[str] = []
+
+    def generate_answer(self, prompt: str) -> str:
+        self.prompts.append(prompt)
+        return "A calls B through directB."
+
+
 class FakeVectorRepository:
     def __init__(self) -> None:
         self.query_embedding: list[float] | None = None
@@ -304,6 +313,46 @@ class CodeQuestionOrchestratorTest(unittest.TestCase):
         self.assertEqual(response.semantic_hits, [])
         self.assertEqual(response.snippets, [])
         self.assertIn("No semantic hits found.", response.warnings)
+
+    def test_answer_uses_answer_provider_when_generation_is_enabled(self) -> None:
+        answer_provider = FakeAnswerProvider()
+        orchestrator = CodeQuestionOrchestrator(
+            embedding_provider=FakeEmbeddingProvider(),
+            vector_repository=FakeVectorRepository(),
+            graph_repository=FakeGraphRepository(),
+            answer_provider=answer_provider,
+        )
+
+        response = orchestrator.answer(
+            query="How does A call B?",
+            top_k=2,
+            max_neighbors=20,
+            max_snippets=3,
+            generate=True,
+        )
+
+        self.assertEqual(response.answer, "A calls B through directB.")
+        self.assertEqual(answer_provider.prompts, [response.prompt])
+
+    def test_answer_skips_answer_provider_when_generation_is_disabled(self) -> None:
+        answer_provider = FakeAnswerProvider()
+        orchestrator = CodeQuestionOrchestrator(
+            embedding_provider=FakeEmbeddingProvider(),
+            vector_repository=FakeVectorRepository(),
+            graph_repository=FakeGraphRepository(),
+            answer_provider=answer_provider,
+        )
+
+        response = orchestrator.answer(
+            query="How does A call B?",
+            top_k=2,
+            max_neighbors=20,
+            max_snippets=3,
+            generate=False,
+        )
+
+        self.assertIsNone(response.answer)
+        self.assertEqual(answer_provider.prompts, [])
 
 
 class ContextAssemblerTest(unittest.TestCase):

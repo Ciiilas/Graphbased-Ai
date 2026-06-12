@@ -11,6 +11,7 @@ from backend.orchestrator.models import (
     OrchestratorResponse,
     SemanticHit,
 )
+from backend.orchestrator.llm import AnswerProvider
 from backend.vector.embeddings import EmbeddingProvider
 from backend.vector.repository import SearchResult
 
@@ -32,6 +33,7 @@ class CodeQuestionOrchestrator:
     embedding_provider: EmbeddingProvider
     vector_repository: VectorSearchRepository
     graph_repository: GraphExpansionRepository
+    answer_provider: AnswerProvider | None = None
 
     def answer(
         self,
@@ -39,6 +41,7 @@ class CodeQuestionOrchestrator:
         top_k: int = 5,
         max_neighbors: int = 20,
         max_snippets: int = 12,
+        generate: bool = True,
     ) -> OrchestratorResponse:
         query_embedding: list[float] = self.embedding_provider.embed_query(query)
         vector_results: list[SearchResult] = self.vector_repository.query(
@@ -60,10 +63,15 @@ class CodeQuestionOrchestrator:
             graph_expansion=graph_expansion,
             max_snippets=max_snippets,
         )
+        generated_answer: str | None = None
+        if generate and self.answer_provider is not None:
+            generated_answer = self.answer_provider.generate_answer(
+                assembled_context.prompt
+            )
 
         return OrchestratorResponse(
             query=query,
-            answer=None,
+            answer=generated_answer,
             prompt=assembled_context.prompt,
             semantic_hits=assembled_context.semantic_hits,
             graph_relations=assembled_context.graph_relations,
@@ -98,4 +106,3 @@ class CodeQuestionOrchestrator:
         if result.id.startswith("file:"):
             return ""
         return result.id
-
