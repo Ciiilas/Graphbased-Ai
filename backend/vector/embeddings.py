@@ -50,4 +50,3 @@ class LlamaIndexGeminiEmbeddingProvider:
 
     def _float_vector(self, embedding: list[float]) -> list[float]:
         return [float(value) for value in embedding]
-
