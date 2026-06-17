@@ -11,6 +11,7 @@ import {
 import ReactFlow, {
   Background,
   Controls,
+  MarkerType,
   MiniMap,
   Panel,
   Position,
@@ -586,12 +587,33 @@ function GraphCanvas({ graph }: { graph: GraphDto }) {
     }
   }, [selectedGroup, selectedGroupExists]);
 
+  const neighborIds = useMemo(() => {
+    if (displayMode !== "uml" || selectedGroup === null) {
+      return new Set<string>();
+    }
+    const members = new Set(
+      umlModels.filter((node) => node.group === selectedGroup).map((node) => node.id),
+    );
+    const result = new Set<string>();
+    allUmlEdges.forEach((edge) => {
+      if (members.has(edge.source) && !members.has(edge.target)) {
+        result.add(edge.target);
+      }
+      if (members.has(edge.target) && !members.has(edge.source)) {
+        result.add(edge.source);
+      }
+    });
+    return result;
+  }, [allUmlEdges, displayMode, selectedGroup, umlModels]);
+
   const visibleUmlModels = useMemo(() => {
     if (displayMode !== "uml" || selectedGroup === null) {
       return umlModels;
     }
-    return umlModels.filter((node) => node.group === selectedGroup);
-  }, [displayMode, selectedGroup, umlModels]);
+    return umlModels.filter(
+      (node) => node.group === selectedGroup || neighborIds.has(node.id),
+    );
+  }, [displayMode, neighborIds, selectedGroup, umlModels]);
 
   const visibleUmlIds = useMemo(() => {
     return new Set(visibleUmlModels.map((node) => node.id));
@@ -618,16 +640,17 @@ function GraphCanvas({ graph }: { graph: GraphDto }) {
     }
 
     return layoutUmlModels(visibleUmlModels, visibleUmlEdges).map(({ node, position }) => {
+      const neighborClass = neighborIds.has(node.id) ? " graph-node--neighbor" : "";
       return {
         id: node.id,
         data: { label: umlNodeLabel(node) },
         position,
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
-        className: `graph-node graph-node--${node.kind.toLowerCase()}`,
+        className: `graph-node graph-node--${node.kind.toLowerCase()}${neighborClass}`,
       };
     });
-  }, [displayMode, layerModels, visibleUmlEdges, visibleUmlModels]);
+  }, [displayMode, layerModels, neighborIds, visibleUmlEdges, visibleUmlModels]);
 
   const edges = useMemo<Edge[]>(() => {
     if (displayMode === "layers") {
@@ -639,6 +662,8 @@ function GraphCanvas({ graph }: { graph: GraphDto }) {
         animated: false,
         type: "smoothstep",
         className: "graph-edge graph-edge--layer",
+        markerEnd: { type: MarkerType.ArrowClosed, color: "rgba(251, 146, 60, 0.85)" },
+        style: { strokeWidth: layerEdgeWidth(edge.count) },
       }));
     }
 
@@ -650,6 +675,7 @@ function GraphCanvas({ graph }: { graph: GraphDto }) {
       animated: edge.type === "CALLS",
       type: "smoothstep",
       className: `graph-edge graph-edge--${edge.type.toLowerCase()}`,
+      markerEnd: { type: MarkerType.ArrowClosed, color: "rgba(148, 163, 184, 0.85)" },
       data: { type: edge.type },
     }));
   }, [displayMode, layerEdges, visibleUmlEdges]);
@@ -703,6 +729,19 @@ function GraphCanvas({ graph }: { graph: GraphDto }) {
           >
             Klassen
           </button>
+          {selectedGroup && (
+            <span className="graph-breadcrumb">
+              <button
+                className="graph-breadcrumb__link"
+                type="button"
+                onClick={showLayerOverview}
+              >
+                MVC
+              </button>
+              <span className="graph-breadcrumb__sep">›</span>
+              <span className="graph-breadcrumb__current">{selectedGroup}</span>
+            </span>
+          )}
         </Panel>
       )}
       {nodes.length > 0 && (
@@ -883,19 +922,32 @@ function buildLayerEdges(edges: UmlEdgeModel[], models: UmlNodeModel[]): LayerEd
   });
 }
 
+// Architektonisch sinnvolle Anordnung: MVC-Fluss View -> Controller -> Model
+// auf der mittleren Zeile, Stuetzschichten darueber/darunter.
+const LAYER_LAYOUT: Record<string, Point> = {
+  View: { x: 0, y: 0 },
+  Controller: { x: 1, y: 0 },
+  Model: { x: 2, y: 0 },
+  IO: { x: 2, y: 1 },
+  Util: { x: 1, y: 1 },
+  Core: { x: 1, y: -1 },
+  Tests: { x: 3, y: -1 },
+};
+
 function layoutLayerModels(
   models: LayerNodeModel[],
 ): Array<{ node: LayerNodeModel; position: Point }> {
   const columnWidth = 330;
-  const rowOffset = 86;
+  const rowHeight = 200;
+  const fallbackRowOffset = 86;
 
-  return models.map((node, index) => ({
-    node,
-    position: {
-      x: index * columnWidth,
-      y: index % 2 === 0 ? 0 : rowOffset,
-    },
-  }));
+  return models.map((node, index) => {
+    const cell = LAYER_LAYOUT[node.group];
+    const position = cell
+      ? { x: cell.x * columnWidth, y: cell.y * rowHeight }
+      : { x: index * columnWidth, y: index % 2 === 0 ? 0 : fallbackRowOffset };
+    return { node, position };
+  });
 }
 
 function layerNodeLabel(node: LayerNodeModel) {
@@ -1234,6 +1286,10 @@ function edgeLabel(type: string, count: number): string {
 
 function layerEdgeLabel(count: number): string {
   return count === 1 ? "1 Beziehung" : `${count} Beziehungen`;
+}
+
+function layerEdgeWidth(count: number): number {
+  return Math.min(2 + Math.log2(count + 1) * 1.6, 9);
 }
 
 function compactPath(path: string): string {

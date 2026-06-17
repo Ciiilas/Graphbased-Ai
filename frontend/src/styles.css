@@ -646,6 +646,36 @@ button:disabled {
   color: #fed7aa;
 }
 
+.graph-breadcrumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px 0 10px;
+  margin-left: 4px;
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.graph-breadcrumb__link {
+  background: transparent;
+  color: #a9b7ae;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.graph-breadcrumb__link:hover {
+  color: #f4f8f5;
+}
+
+.graph-breadcrumb__sep {
+  color: #6b7a70;
+}
+
+.graph-breadcrumb__current {
+  color: #fed7aa;
+}
+
 .graph-empty-panel,
 .graph-summary-panel {
   border: 1px solid rgba(251, 146, 60, 0.26);
@@ -707,6 +737,11 @@ button:disabled {
   background: #fff0ee;
 }
 
+.react-flow__node.graph-node--neighbor {
+  opacity: 0.45;
+  filter: grayscale(0.5);
+}
+
 .react-flow__edge-text {
   font-size: 10px;
   font-weight: 700;
@@ -724,7 +759,6 @@ button:disabled {
 
 .react-flow__edge.graph-edge--layer path {
   stroke: rgba(251, 146, 60, 0.62);
-  stroke-width: 2.4;
 }
 
 .react-flow__edge.graph-edge--calls path {
