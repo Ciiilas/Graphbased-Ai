@@ -1,8 +1,6 @@
 import {
   type FormEvent,
-  type PointerEvent as ReactPointerEvent,
   type ReactNode,
-  type RefObject,
   useEffect,
   useMemo,
   useRef,
@@ -20,7 +18,6 @@ import ReactFlow, {
 } from "reactflow";
 import {
   FolderOpen,
-  GripHorizontal,
   Loader2,
   MessageSquare,
   Network,
@@ -96,10 +93,8 @@ function App() {
   const [isIndexing, setIsIndexing] = useState(false);
   const [isGraphLoading, setIsGraphLoading] = useState(false);
   const [isGraphChatCollapsed, setIsGraphChatCollapsed] = useState(false);
-  const [graphChatPosition, setGraphChatPosition] = useState<Point>({ x: 18, y: 18 });
   const [status, setStatus] = useState("Bereit");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const graphLayoutRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (fileInputRef.current) {
@@ -254,14 +249,19 @@ function App() {
           />
         </section>
       ) : (
-        <section ref={graphLayoutRef} className="graph-layout">
-          <GraphCanvas graph={graph} />
-          <GraphChatWindow
+        <section
+          className={
+            isGraphChatCollapsed
+              ? "graph-layout graph-layout--chat-collapsed"
+              : "graph-layout"
+          }
+        >
+          <div className="graph-canvas-wrap">
+            <GraphCanvas graph={graph} />
+          </div>
+          <GraphChatDock
             collapsed={isGraphChatCollapsed}
-            position={graphChatPosition}
             setCollapsed={setIsGraphChatCollapsed}
-            setPosition={setGraphChatPosition}
-            boundsRef={graphLayoutRef}
           >
             <ChatPanel
               messages={messages}
@@ -271,7 +271,7 @@ function App() {
               onAsk={handleAsk}
               compact
             />
-          </GraphChatWindow>
+          </GraphChatDock>
         </section>
       )}
 
@@ -286,102 +286,46 @@ function App() {
   );
 }
 
-function GraphChatWindow(props: {
+function GraphChatDock(props: {
   collapsed: boolean;
-  position: Point;
   setCollapsed: (value: boolean) => void;
-  setPosition: (value: Point) => void;
-  boundsRef: RefObject<HTMLElement>;
   children: ReactNode;
 }) {
-  const windowRef = useRef<HTMLDivElement | null>(null);
-  const dragRef = useRef<{
-    pointerId: number;
-    startX: number;
-    startY: number;
-    originX: number;
-    originY: number;
-  } | null>(null);
-
-  function clampPosition(nextPosition: Point): Point {
-    const bounds = props.boundsRef.current;
-    const chatWindow = windowRef.current;
-    const width = chatWindow?.offsetWidth ?? 410;
-    const height = chatWindow?.offsetHeight ?? 520;
-    const boundsWidth = bounds?.clientWidth ?? window.innerWidth;
-    const boundsHeight = bounds?.clientHeight ?? window.innerHeight;
-    const padding = 12;
-
-    return {
-      x: Math.min(Math.max(nextPosition.x, padding), Math.max(padding, boundsWidth - width - padding)),
-      y: Math.min(Math.max(nextPosition.y, padding), Math.max(padding, boundsHeight - height - padding)),
-    };
-  }
-
-  function handleDragStart(event: ReactPointerEvent<HTMLDivElement>) {
-    event.currentTarget.setPointerCapture(event.pointerId);
-    dragRef.current = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      originX: props.position.x,
-      originY: props.position.y,
-    };
-  }
-
-  function handleDragMove(event: ReactPointerEvent<HTMLDivElement>) {
-    const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) {
-      return;
-    }
-
-    props.setPosition(
-      clampPosition({
-        x: drag.originX + event.clientX - drag.startX,
-        y: drag.originY + event.clientY - drag.startY,
-      }),
+  if (props.collapsed) {
+    return (
+      <aside className="graph-chat-dock graph-chat-dock--collapsed">
+        <button
+          className="graph-chat-dock__rail"
+          type="button"
+          title="Chat ausklappen"
+          onClick={() => props.setCollapsed(false)}
+        >
+          <PanelLeftOpen size={18} />
+          <MessageSquare size={18} />
+          <span className="graph-chat-dock__rail-label">Chat</span>
+        </button>
+      </aside>
     );
   }
 
-  function handleDragEnd(event: ReactPointerEvent<HTMLDivElement>) {
-    if (dragRef.current?.pointerId === event.pointerId) {
-      dragRef.current = null;
-    }
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-  }
-
   return (
-    <div
-      ref={windowRef}
-      className={props.collapsed ? "floating-chat floating-chat--collapsed" : "floating-chat"}
-      style={{ transform: `translate(${props.position.x}px, ${props.position.y}px)` }}
-    >
-      <div
-        className="floating-chat__titlebar"
-        onPointerDown={handleDragStart}
-        onPointerMove={handleDragMove}
-        onPointerUp={handleDragEnd}
-        onPointerCancel={handleDragEnd}
-      >
-        <span className="floating-chat__title">
-          <GripHorizontal size={16} />
+    <aside className="graph-chat-dock">
+      <div className="graph-chat-dock__titlebar">
+        <span className="graph-chat-dock__title">
           <MessageSquare size={16} />
           Chat
         </span>
         <button
-          className="floating-chat__collapse"
+          className="graph-chat-dock__collapse"
           type="button"
-          title={props.collapsed ? "Chat ausklappen" : "Chat einklappen"}
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={() => props.setCollapsed(!props.collapsed)}
+          title="Chat einklappen"
+          onClick={() => props.setCollapsed(true)}
         >
-          {props.collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+          <PanelLeftClose size={16} />
         </button>
       </div>
-      {!props.collapsed && props.children}
-    </div>
+      {props.children}
+    </aside>
   );
 }
 
@@ -843,7 +787,7 @@ function GraphCanvas({ graph }: { graph: GraphDto }) {
         </Panel>
       )}
       {nodes.length > 0 && (
-        <Panel className="graph-summary-panel" position="top-center">
+        <Panel className="graph-summary-panel" position="bottom-center">
           {displayMode === "layers"
             ? `${nodes.length} Layer - ${edges.length} Beziehungen`
             : selectedGroup
