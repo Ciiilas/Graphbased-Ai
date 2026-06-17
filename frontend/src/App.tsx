@@ -71,10 +71,10 @@ type LayerEdgeModel = {
 const UML_CONTAINER_KINDS = new Set(["class", "object", "trait", "enum"]);
 const UML_EDGE_TYPES = new Set(["CALLS", "EXTENDS", "INSTANTIATES", "USES"]);
 const UML_EDGE_TYPE_OPTIONS = [
-  { type: "CALLS", label: "Calls" },
-  { type: "USES", label: "Uses" },
-  { type: "EXTENDS", label: "Extends" },
-  { type: "INSTANTIATES", label: "Creates" },
+  { type: "CALLS", label: "Calls", color: "rgba(251, 146, 60, 0.82)" },
+  { type: "USES", label: "Uses", color: "rgba(148, 163, 184, 0.74)" },
+  { type: "EXTENDS", label: "Extends", color: "rgba(74, 222, 128, 0.7)" },
+  { type: "INSTANTIATES", label: "Creates", color: "rgba(74, 222, 128, 0.7)" },
 ];
 const DEFAULT_VISIBLE_EDGE_TYPES = new Set(["CALLS", "USES"]);
 
@@ -568,6 +568,7 @@ function renderInlineMarkdown(text: string): ReactNode[] {
 function GraphCanvas({ graph }: { graph: GraphDto }) {
   const [displayMode, setDisplayMode] = useState<GraphDisplayMode>("layers");
   const [classDetailMode, setClassDetailMode] = useState<GraphClassDetailMode>("compact");
+  const [expandedClassId, setExpandedClassId] = useState<string | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
   const [activeEdgeTypes, setActiveEdgeTypes] = useState<Set<string>>(
     () => new Set(DEFAULT_VISIBLE_EDGE_TYPES),
@@ -639,9 +640,11 @@ function GraphCanvas({ graph }: { graph: GraphDto }) {
     return filteredUmlEdges.filter((edge) => visibleUmlIds.has(edge.source) && visibleUmlIds.has(edge.target));
   }, [filteredUmlEdges, visibleUmlIds]);
 
+  // Die Layer-Uebersicht zeigt bewusst alle Beziehungstypen; der Typ-Filter
+  // wirkt nur in der Klassen-Sicht.
   const layerEdges = useMemo(() => {
-    return buildLayerEdges(filteredUmlEdges, umlModels);
-  }, [filteredUmlEdges, umlModels]);
+    return buildLayerEdges(allUmlEdges, umlModels);
+  }, [allUmlEdges, umlModels]);
 
   const nodes = useMemo<Node[]>(() => {
     if (displayMode === "layers") {
@@ -655,18 +658,21 @@ function GraphCanvas({ graph }: { graph: GraphDto }) {
       }));
     }
 
-    return layoutUmlModels(visibleUmlModels, visibleUmlEdges, classDetailMode).map(({ node, position }) => {
-      const neighborClass = neighborIds.has(node.id) ? " graph-node--neighbor" : "";
+    return layoutUmlModels(visibleUmlModels, visibleUmlEdges, classDetailMode, expandedClassId).map(({ node, position }) => {
+      const isExpanded = classDetailMode === "compact" && node.id === expandedClassId;
+      const neighborClass = neighborIds.has(node.id) && !isExpanded ? " graph-node--neighbor" : "";
+      const detail: GraphClassDetailMode = isExpanded ? "uml" : classDetailMode;
+      const expandedClass = isExpanded ? " graph-node--expanded" : "";
       return {
         id: node.id,
-        data: { label: classDetailMode === "compact" ? compactUmlNodeLabel(node) : umlNodeLabel(node) },
+        data: { label: detail === "compact" ? compactUmlNodeLabel(node) : umlNodeLabel(node) },
         position,
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
-        className: `graph-node graph-node--${node.kind.toLowerCase()} graph-node--${classDetailMode}${neighborClass}`,
+        className: `graph-node graph-node--${node.kind.toLowerCase()} graph-node--${detail}${neighborClass}${expandedClass}`,
       };
     });
-  }, [classDetailMode, displayMode, layerModels, neighborIds, visibleUmlEdges, visibleUmlModels]);
+  }, [classDetailMode, displayMode, expandedClassId, layerModels, neighborIds, visibleUmlEdges, visibleUmlModels]);
 
   const edges = useMemo<Edge[]>(() => {
     if (displayMode === "layers") {
@@ -699,18 +705,26 @@ function GraphCanvas({ graph }: { graph: GraphDto }) {
   function showLayerDetails(group: string) {
     setSelectedGroup(group);
     setClassDetailMode("compact");
+    setExpandedClassId(null);
     setDisplayMode("uml");
   }
 
   function showAllClasses() {
     setSelectedGroup(null);
     setClassDetailMode("compact");
+    setExpandedClassId(null);
     setDisplayMode("uml");
   }
 
   function showLayerOverview() {
     setSelectedGroup(null);
+    setExpandedClassId(null);
     setDisplayMode("layers");
+  }
+
+  function changeClassDetailMode(mode: GraphClassDetailMode) {
+    setClassDetailMode(mode);
+    setExpandedClassId(null);
   }
 
   function toggleEdgeType(edgeType: string) {
@@ -727,12 +741,17 @@ function GraphCanvas({ graph }: { graph: GraphDto }) {
 
   return (
     <ReactFlow
-      key={`${displayMode}-${selectedGroup ?? "all"}-${nodes.length}-${edges.length}`}
+      key={`${displayMode}-${classDetailMode}-${selectedGroup ?? "all"}-${expandedClassId ?? "none"}-${nodes.length}-${edges.length}`}
       nodes={nodes}
       edges={edges}
       onNodeClick={(_, node) => {
         if (displayMode === "layers") {
           showLayerDetails(String(node.id).replace(/^layer:/, ""));
+          return;
+        }
+        if (classDetailMode === "compact") {
+          const id = String(node.id);
+          setExpandedClassId((current) => (current === id ? null : id));
         }
       }}
       fitView
@@ -772,7 +791,7 @@ function GraphCanvas({ graph }: { graph: GraphDto }) {
                     : "graph-chip"
                 }
                 type="button"
-                onClick={() => setClassDetailMode("compact")}
+                onClick={() => changeClassDetailMode("compact")}
               >
                 Kompakt
               </button>
@@ -783,28 +802,31 @@ function GraphCanvas({ graph }: { graph: GraphDto }) {
                     : "graph-chip"
                 }
                 type="button"
-                onClick={() => setClassDetailMode("uml")}
+                onClick={() => changeClassDetailMode("uml")}
               >
                 UML
               </button>
             </span>
           )}
-          <span className="graph-edge-filter" aria-label="Beziehungstypen">
-            {UML_EDGE_TYPE_OPTIONS.map((option) => (
-              <button
-                key={option.type}
-                className={
-                  activeEdgeTypes.has(option.type)
-                    ? "graph-chip graph-chip--active"
-                    : "graph-chip"
-                }
-                type="button"
-                onClick={() => toggleEdgeType(option.type)}
-              >
-                {option.label}
-              </button>
-            ))}
-          </span>
+          {displayMode === "uml" && (
+            <span className="graph-edge-filter" aria-label="Beziehungstypen">
+              {UML_EDGE_TYPE_OPTIONS.map((option) => (
+                <button
+                  key={option.type}
+                  className={
+                    activeEdgeTypes.has(option.type)
+                      ? "graph-chip graph-chip--active"
+                      : "graph-chip"
+                  }
+                  type="button"
+                  onClick={() => toggleEdgeType(option.type)}
+                >
+                  <span className="graph-chip__dot" style={{ background: option.color }} />
+                  {option.label}
+                </button>
+              ))}
+            </span>
+          )}
           {selectedGroup && (
             <span className="graph-breadcrumb">
               <button
@@ -1044,8 +1066,13 @@ function layoutUmlModels(
   models: UmlNodeModel[],
   edges: UmlEdgeModel[],
   detailMode: GraphClassDetailMode,
+  expandedId: string | null,
 ): Array<{ node: UmlNodeModel; position: Point }> {
-  const modelById = new Map(models.map((model) => [model.id, model]));
+  // Effektiver Darstellungsmodus eines Knotens: ein im Kompaktmodus
+  // aufgeklappter Knoten wird wie ein voller UML-Knoten behandelt.
+  const detailOf = (id: string): GraphClassDetailMode =>
+    detailMode === "compact" && id === expandedId ? "uml" : detailMode;
+  const hasExpanded = detailMode === "compact" && expandedId !== null && models.some((model) => model.id === expandedId);
   const connectedIds = new Set(edges.flatMap((edge) => [edge.source, edge.target]));
   const groups = new Map<string, UmlNodeModel[]>();
 
@@ -1064,7 +1091,9 @@ function layoutUmlModels(
   });
 
   const positions = new Map<string, Point>();
-  const columnWidth = detailMode === "compact" ? 260 : 380;
+  // Kompakte Spalten sind eng; ein aufgeklappter (voller) Knoten braucht mehr
+  // Breite, daher die Spalte nur dann aufweiten.
+  const columnWidth = detailMode === "compact" ? (hasExpanded ? 300 : 260) : 380;
   const rowGap = detailMode === "compact" ? 22 : 34;
 
   orderedGroups.forEach(([group, groupModels], column) => {
@@ -1096,7 +1125,7 @@ function layoutUmlModels(
         x: column * columnWidth,
         y,
       });
-      y += estimateUmlNodeHeight(model, detailMode) + rowGap;
+      y += estimateUmlNodeHeight(model, detailOf(model.id)) + rowGap;
     });
 
     if (group && sortedModels.length > 0) {

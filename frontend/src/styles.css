@@ -467,6 +467,13 @@ button:disabled {
 
 .react-flow__node.graph-node--compact {
   width: 222px;
+  cursor: pointer;
+}
+
+.react-flow__node.graph-node--expanded {
+  box-shadow:
+    0 0 0 2px rgba(251, 146, 60, 0.55),
+    0 12px 28px rgba(3, 7, 18, 0.34);
 }
 
 .layer-node {
@@ -712,6 +719,23 @@ button:disabled {
 .graph-chip--active {
   background: rgba(251, 146, 60, 0.18);
   color: #fed7aa;
+}
+
+.graph-edge-filter .graph-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.graph-chip__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.graph-chip:not(.graph-chip--active) .graph-chip__dot {
+  opacity: 0.5;
 }
 
 .graph-breadcrumb {
