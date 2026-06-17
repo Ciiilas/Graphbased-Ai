@@ -458,6 +458,47 @@ button:disabled {
   box-shadow: 0 12px 28px rgba(3, 7, 18, 0.28);
 }
 
+.react-flow__node.graph-node--layer {
+  width: 238px;
+  cursor: pointer;
+  border-color: rgba(251, 146, 60, 0.28);
+  background: rgba(19, 28, 25, 0.96);
+}
+
+.layer-node {
+  display: grid;
+  gap: 10px;
+  min-height: 132px;
+  padding: 14px;
+}
+
+.layer-node strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #fff7ed;
+  font-size: 18px;
+}
+
+.layer-node__stats {
+  display: grid;
+  gap: 6px;
+}
+
+.layer-node__stats span {
+  min-width: 0;
+  border-radius: 6px;
+  padding: 7px 9px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: rgba(255, 255, 255, 0.07);
+  color: #dbe7df;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .uml-node {
   display: grid;
   min-height: 148px;
@@ -574,6 +615,37 @@ button:disabled {
   fill: rgba(249, 115, 22, 0.12);
 }
 
+.graph-mode-panel {
+  display: inline-flex;
+  gap: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 4px;
+  background: rgba(13, 17, 16, 0.9);
+  box-shadow: 0 14px 34px rgba(3, 7, 18, 0.24);
+}
+
+.graph-mode-button {
+  min-width: 72px;
+  min-height: 30px;
+  border-radius: 6px;
+  padding: 0 10px;
+  background: transparent;
+  color: #a9b7ae;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.graph-mode-button:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f4f8f5;
+}
+
+.graph-mode-button--active {
+  background: rgba(249, 115, 22, 0.22);
+  color: #fed7aa;
+}
+
 .graph-empty-panel,
 .graph-summary-panel {
   border: 1px solid rgba(251, 146, 60, 0.26);
@@ -648,6 +720,11 @@ button:disabled {
 .react-flow__edge.graph-edge path {
   stroke: rgba(148, 163, 184, 0.64);
   stroke-width: 1.8;
+}
+
+.react-flow__edge.graph-edge--layer path {
+  stroke: rgba(251, 146, 60, 0.62);
+  stroke-width: 2.4;
 }
 
 .react-flow__edge.graph-edge--calls path {

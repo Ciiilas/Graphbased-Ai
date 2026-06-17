@@ -33,6 +33,7 @@ import { askQuestion, indexPath, loadGraph, uploadAndIndex } from "./api";
 import type { ChatMessage, GraphDto, GraphNodeDto } from "./types";
 
 type ViewMode = "chat" | "graph";
+type GraphDisplayMode = "layers" | "uml";
 type Point = {
   x: number;
   y: number;
@@ -50,6 +51,18 @@ type UmlEdgeModel = {
   source: string;
   target: string;
   type: string;
+  count: number;
+};
+type LayerNodeModel = {
+  id: string;
+  group: string;
+  typeCount: number;
+  attributeCount: number;
+  methodCount: number;
+};
+type LayerEdgeModel = {
+  source: string;
+  target: string;
   count: number;
 };
 
@@ -544,22 +557,67 @@ function renderInlineMarkdown(text: string): ReactNode[] {
 }
 
 function GraphCanvas({ graph }: { graph: GraphDto }) {
+  const [displayMode, setDisplayMode] = useState<GraphDisplayMode>("layers");
+  const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
   const nodeById = useMemo(() => {
     return new Map(graph.nodes.map((node) => [node.id, node]));
   }, [graph.nodes]);
 
   const umlModels = useMemo(() => buildUmlModels(graph.nodes), [graph.nodes]);
 
-  const visibleUmlIds = useMemo(() => {
+  const layerModels = useMemo(() => buildLayerModels(umlModels), [umlModels]);
+
+  const allUmlIds = useMemo(() => {
     return new Set(umlModels.map((node) => node.id));
   }, [umlModels]);
 
-  const umlEdges = useMemo(() => {
-    return buildUmlEdges(graph.edges, nodeById, visibleUmlIds);
-  }, [graph.edges, nodeById, visibleUmlIds]);
+  const allUmlEdges = useMemo(() => {
+    return buildUmlEdges(graph.edges, nodeById, allUmlIds);
+  }, [graph.edges, nodeById, allUmlIds]);
+
+  const selectedGroupExists = useMemo(() => {
+    return selectedGroup !== null && layerModels.some((layer) => layer.group === selectedGroup);
+  }, [layerModels, selectedGroup]);
+
+  useEffect(() => {
+    if (selectedGroup !== null && !selectedGroupExists) {
+      setSelectedGroup(null);
+      setDisplayMode("layers");
+    }
+  }, [selectedGroup, selectedGroupExists]);
+
+  const visibleUmlModels = useMemo(() => {
+    if (displayMode !== "uml" || selectedGroup === null) {
+      return umlModels;
+    }
+    return umlModels.filter((node) => node.group === selectedGroup);
+  }, [displayMode, selectedGroup, umlModels]);
+
+  const visibleUmlIds = useMemo(() => {
+    return new Set(visibleUmlModels.map((node) => node.id));
+  }, [visibleUmlModels]);
+
+  const visibleUmlEdges = useMemo(() => {
+    return allUmlEdges.filter((edge) => visibleUmlIds.has(edge.source) && visibleUmlIds.has(edge.target));
+  }, [allUmlEdges, visibleUmlIds]);
+
+  const layerEdges = useMemo(() => {
+    return buildLayerEdges(allUmlEdges, umlModels);
+  }, [allUmlEdges, umlModels]);
 
   const nodes = useMemo<Node[]>(() => {
-    return layoutUmlModels(umlModels, umlEdges).map(({ node, position }) => {
+    if (displayMode === "layers") {
+      return layoutLayerModels(layerModels).map(({ node, position }) => ({
+        id: node.id,
+        data: { label: layerNodeLabel(node) },
+        position,
+        sourcePosition: Position.Right,
+        targetPosition: Position.Left,
+        className: `graph-node graph-node--layer graph-node--layer-${node.group.toLowerCase()}`,
+      }));
+    }
+
+    return layoutUmlModels(visibleUmlModels, visibleUmlEdges).map(({ node, position }) => {
       return {
         id: node.id,
         data: { label: umlNodeLabel(node) },
@@ -569,10 +627,22 @@ function GraphCanvas({ graph }: { graph: GraphDto }) {
         className: `graph-node graph-node--${node.kind.toLowerCase()}`,
       };
     });
-  }, [umlModels, umlEdges]);
+  }, [displayMode, layerModels, visibleUmlEdges, visibleUmlModels]);
 
   const edges = useMemo<Edge[]>(() => {
-    return umlEdges.map((edge, index) => ({
+    if (displayMode === "layers") {
+      return layerEdges.map((edge, index) => ({
+        id: `${edge.source}-layer-${edge.target}-${index}`,
+        source: edge.source,
+        target: edge.target,
+        label: layerEdgeLabel(edge.count),
+        animated: false,
+        type: "smoothstep",
+        className: "graph-edge graph-edge--layer",
+      }));
+    }
+
+    return visibleUmlEdges.map((edge, index) => ({
       id: `${edge.source}-${edge.type}-${edge.target}-${index}`,
       source: edge.source,
       target: edge.target,
@@ -582,13 +652,33 @@ function GraphCanvas({ graph }: { graph: GraphDto }) {
       className: `graph-edge graph-edge--${edge.type.toLowerCase()}`,
       data: { type: edge.type },
     }));
-  }, [umlEdges]);
+  }, [displayMode, layerEdges, visibleUmlEdges]);
+
+  function showLayerDetails(group: string) {
+    setSelectedGroup(group);
+    setDisplayMode("uml");
+  }
+
+  function showAllClasses() {
+    setSelectedGroup(null);
+    setDisplayMode("uml");
+  }
+
+  function showLayerOverview() {
+    setSelectedGroup(null);
+    setDisplayMode("layers");
+  }
 
   return (
     <ReactFlow
-      key={`${nodes.length}-${edges.length}`}
+      key={`${displayMode}-${selectedGroup ?? "all"}-${nodes.length}-${edges.length}`}
       nodes={nodes}
       edges={edges}
+      onNodeClick={(_, node) => {
+        if (displayMode === "layers") {
+          showLayerDetails(String(node.id).replace(/^layer:/, ""));
+        }
+      }}
       fitView
       fitViewOptions={{ padding: 0.2 }}
       minZoom={0.15}
@@ -597,9 +687,31 @@ function GraphCanvas({ graph }: { graph: GraphDto }) {
       <Background color="rgba(255, 255, 255, 0.12)" />
       <Controls position="bottom-right" />
       <MiniMap position="top-right" pannable zoomable />
+      {umlModels.length > 0 && (
+        <Panel className="graph-mode-panel" position="top-left">
+          <button
+            className={displayMode === "layers" ? "graph-mode-button graph-mode-button--active" : "graph-mode-button"}
+            type="button"
+            onClick={showLayerOverview}
+          >
+            MVC
+          </button>
+          <button
+            className={displayMode === "uml" ? "graph-mode-button graph-mode-button--active" : "graph-mode-button"}
+            type="button"
+            onClick={showAllClasses}
+          >
+            Klassen
+          </button>
+        </Panel>
+      )}
       {nodes.length > 0 && (
         <Panel className="graph-summary-panel" position="top-center">
-          {nodes.length} UML-Typen · {edges.length} Beziehungen
+          {displayMode === "layers"
+            ? `${nodes.length} Layer - ${edges.length} Beziehungen`
+            : selectedGroup
+              ? `${selectedGroup}: ${nodes.length} UML-Typen - ${edges.length} Beziehungen`
+              : `${nodes.length} UML-Typen - ${edges.length} Beziehungen`}
         </Panel>
       )}
       {nodes.length === 0 && (
@@ -704,6 +816,100 @@ function buildUmlEdges(
     }
     return left.type.localeCompare(right.type);
   });
+}
+
+function buildLayerModels(models: UmlNodeModel[]): LayerNodeModel[] {
+  const layerByGroup = new Map<string, LayerNodeModel>();
+
+  models.forEach((model) => {
+    const layer = layerByGroup.get(model.group) ?? {
+      id: `layer:${model.group}`,
+      group: model.group,
+      typeCount: 0,
+      attributeCount: 0,
+      methodCount: 0,
+    };
+    layer.typeCount += 1;
+    layer.attributeCount += model.attributes.length;
+    layer.methodCount += model.methods.length;
+    layerByGroup.set(model.group, layer);
+  });
+
+  return Array.from(layerByGroup.values()).sort((left, right) => {
+    const byRank = umlGroupRank(left.group) - umlGroupRank(right.group);
+    if (byRank !== 0) {
+      return byRank;
+    }
+    return left.group.localeCompare(right.group);
+  });
+}
+
+function buildLayerEdges(edges: UmlEdgeModel[], models: UmlNodeModel[]): LayerEdgeModel[] {
+  const groupByNodeId = new Map(models.map((model) => [model.id, model.group]));
+  const edgeByKey = new Map<string, LayerEdgeModel>();
+
+  edges.forEach((edge) => {
+    const sourceGroup = groupByNodeId.get(edge.source);
+    const targetGroup = groupByNodeId.get(edge.target);
+    if (!sourceGroup || !targetGroup || sourceGroup === targetGroup) {
+      return;
+    }
+
+    const source = `layer:${sourceGroup}`;
+    const target = `layer:${targetGroup}`;
+    const key = `${source}->${target}`;
+    const existing = edgeByKey.get(key);
+    if (existing) {
+      existing.count += edge.count;
+      return;
+    }
+    edgeByKey.set(key, { source, target, count: edge.count });
+  });
+
+  return Array.from(edgeByKey.values()).sort((left, right) => {
+    const leftSource = left.source.replace(/^layer:/, "");
+    const rightSource = right.source.replace(/^layer:/, "");
+    const bySource = umlGroupRank(leftSource) - umlGroupRank(rightSource);
+    if (bySource !== 0) {
+      return bySource;
+    }
+    const leftTarget = left.target.replace(/^layer:/, "");
+    const rightTarget = right.target.replace(/^layer:/, "");
+    const byTarget = umlGroupRank(leftTarget) - umlGroupRank(rightTarget);
+    if (byTarget !== 0) {
+      return byTarget;
+    }
+    return left.target.localeCompare(right.target);
+  });
+}
+
+function layoutLayerModels(
+  models: LayerNodeModel[],
+): Array<{ node: LayerNodeModel; position: Point }> {
+  const columnWidth = 330;
+  const rowOffset = 86;
+
+  return models.map((node, index) => ({
+    node,
+    position: {
+      x: index * columnWidth,
+      y: index % 2 === 0 ? 0 : rowOffset,
+    },
+  }));
+}
+
+function layerNodeLabel(node: LayerNodeModel) {
+  return (
+    <div className="layer-node">
+      <span className="graph-node__kind">Layer</span>
+      <strong>{node.group}</strong>
+      <div className="layer-node__stats">
+        <span>{node.typeCount} Typen</span>
+        <span>{node.attributeCount} Felder</span>
+        <span>{node.methodCount} Methoden</span>
+      </div>
+    </div>
+  );
 }
 
 function layoutUmlModels(
@@ -1024,6 +1230,10 @@ function edgeLabel(type: string, count: number): string {
   };
   const label = labels[type] ?? type.toLowerCase();
   return count > 1 ? `${label} (${count})` : label;
+}
+
+function layerEdgeLabel(count: number): string {
+  return count === 1 ? "1 Beziehung" : `${count} Beziehungen`;
 }
 
 function compactPath(path: string): string {
