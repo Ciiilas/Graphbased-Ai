@@ -723,7 +723,11 @@ function GraphCanvas({ graph }: { graph: GraphDto }) {
             MVC
           </button>
           <button
-            className={displayMode === "uml" ? "graph-mode-button graph-mode-button--active" : "graph-mode-button"}
+            className={
+              displayMode === "uml" && selectedGroup === null
+                ? "graph-mode-button graph-mode-button--active"
+                : "graph-mode-button"
+            }
             type="button"
             onClick={showAllClasses}
           >
@@ -937,8 +941,8 @@ const LAYER_LAYOUT: Record<string, Point> = {
 function layoutLayerModels(
   models: LayerNodeModel[],
 ): Array<{ node: LayerNodeModel; position: Point }> {
-  const columnWidth = 330;
-  const rowHeight = 200;
+  const columnWidth = 440;
+  const rowHeight = 240;
   const fallbackRowOffset = 86;
 
   return models.map((node, index) => {
@@ -1285,7 +1289,7 @@ function edgeLabel(type: string, count: number): string {
 }
 
 function layerEdgeLabel(count: number): string {
-  return count === 1 ? "1 Beziehung" : `${count} Beziehungen`;
+  return `${count}×`;
 }
 
 function layerEdgeWidth(count: number): number {
