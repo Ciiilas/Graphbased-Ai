@@ -363,66 +363,66 @@ button:disabled {
 }
 
 .graph-layout {
-  position: relative;
   min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr min(410px, 38vw);
   background: #0d1110;
 }
 
-.floating-chat {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: min(410px, calc(100vw - 36px));
-  z-index: 3;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
+.graph-layout--chat-collapsed {
+  grid-template-columns: 1fr 48px;
+}
+
+.graph-canvas-wrap {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+
+.graph-chat-dock {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: 38px 1fr;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(13, 17, 16, 0.92);
-  box-shadow: 0 18px 52px rgba(3, 7, 18, 0.34);
-  backdrop-filter: blur(14px);
-  touch-action: none;
-  user-select: none;
+  overflow: hidden;
 }
 
-.floating-chat--collapsed {
-  width: 178px;
+.graph-chat-dock--collapsed {
+  display: block;
 }
 
-.floating-chat__titlebar {
-  height: 38px;
+.graph-chat-dock .chat-panel--compact {
+  height: 100%;
+  min-height: 0;
+}
+
+.graph-chat-dock__titlebar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 0 8px 0 10px;
+  padding: 0 8px 0 12px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   background: linear-gradient(180deg, rgba(29, 40, 36, 0.96), rgba(13, 17, 16, 0.94));
   color: #f4f8f5;
-  cursor: grab;
 }
 
-.floating-chat__titlebar:active {
-  cursor: grabbing;
-}
-
-.floating-chat__title {
+.graph-chat-dock__title {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   min-width: 0;
   font-size: 13px;
   font-weight: 750;
 }
 
-.floating-chat__title svg:first-child {
-  color: #77857d;
-}
-
-.floating-chat__title svg:nth-child(2) {
+.graph-chat-dock__title svg {
   color: #fb923c;
 }
 
-.floating-chat__collapse {
+.graph-chat-dock__collapse {
   width: 28px;
   height: 28px;
   display: grid;
@@ -433,8 +433,37 @@ button:disabled {
   color: #f4f8f5;
 }
 
-.floating-chat__collapse:hover {
+.graph-chat-dock__collapse:hover {
   background: rgba(249, 115, 22, 0.22);
+}
+
+.graph-chat-dock__rail {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding-top: 14px;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(13, 17, 16, 0.92);
+  color: #cfe0d6;
+}
+
+.graph-chat-dock__rail:hover {
+  color: #fed7aa;
+  background: rgba(19, 28, 25, 0.96);
+}
+
+.graph-chat-dock__rail svg:nth-child(2) {
+  color: #fb923c;
+}
+
+.graph-chat-dock__rail-label {
+  writing-mode: vertical-rl;
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
 }
 
 .hidden-input {
@@ -458,9 +487,92 @@ button:disabled {
   box-shadow: 0 12px 28px rgba(3, 7, 18, 0.28);
 }
 
+.react-flow__node.graph-node--layer {
+  width: 238px;
+  cursor: pointer;
+  border-color: rgba(251, 146, 60, 0.28);
+  background: rgba(19, 28, 25, 0.96);
+}
+
+.react-flow__node.graph-node--compact {
+  width: 222px;
+  cursor: pointer;
+}
+
+.react-flow__node.graph-node--expanded {
+  box-shadow:
+    0 0 0 2px rgba(251, 146, 60, 0.55),
+    0 12px 28px rgba(3, 7, 18, 0.34);
+}
+
+.layer-node {
+  display: grid;
+  gap: 10px;
+  min-height: 132px;
+  padding: 14px;
+}
+
+.layer-node strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #fff7ed;
+  font-size: 18px;
+}
+
+.layer-node__stats {
+  display: grid;
+  gap: 6px;
+}
+
+.layer-node__stats span {
+  min-width: 0;
+  border-radius: 6px;
+  padding: 7px 9px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: rgba(255, 255, 255, 0.07);
+  color: #dbe7df;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .uml-node {
   display: grid;
   min-height: 148px;
+}
+
+.compact-node {
+  display: grid;
+  gap: 7px;
+  min-height: 88px;
+  padding: 11px 12px;
+}
+
+.compact-node strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #fff7ed;
+  font-size: 13px;
+}
+
+.compact-node small,
+.compact-node__meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #9eada4;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.compact-node__meta {
+  color: #fed7aa;
 }
 
 .uml-node__header {
@@ -574,6 +686,117 @@ button:disabled {
   fill: rgba(249, 115, 22, 0.12);
 }
 
+.graph-mode-panel {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  max-width: min(860px, calc(100vw - 420px));
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 4px;
+  background: rgba(13, 17, 16, 0.9);
+  box-shadow: 0 14px 34px rgba(3, 7, 18, 0.24);
+}
+
+.graph-mode-button {
+  min-width: 72px;
+  min-height: 30px;
+  border-radius: 6px;
+  padding: 0 10px;
+  background: transparent;
+  color: #a9b7ae;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.graph-mode-button:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f4f8f5;
+}
+
+.graph-mode-button--active {
+  background: rgba(249, 115, 22, 0.22);
+  color: #fed7aa;
+}
+
+.graph-detail-switch,
+.graph-edge-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 6px;
+  margin-left: 4px;
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.graph-chip {
+  min-height: 28px;
+  border-radius: 6px;
+  padding: 0 9px;
+  background: transparent;
+  color: #8f9d95;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.graph-chip:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f4f8f5;
+}
+
+.graph-chip--active {
+  background: rgba(251, 146, 60, 0.18);
+  color: #fed7aa;
+}
+
+.graph-edge-filter .graph-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.graph-chip__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.graph-chip:not(.graph-chip--active) .graph-chip__dot {
+  opacity: 0.5;
+}
+
+.graph-breadcrumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px 0 10px;
+  margin-left: 4px;
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.graph-breadcrumb__link {
+  background: transparent;
+  color: #a9b7ae;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.graph-breadcrumb__link:hover {
+  color: #f4f8f5;
+}
+
+.graph-breadcrumb__sep {
+  color: #6b7a70;
+}
+
+.graph-breadcrumb__current {
+  color: #fed7aa;
+}
+
 .graph-empty-panel,
 .graph-summary-panel {
   border: 1px solid rgba(251, 146, 60, 0.26);
@@ -635,6 +858,11 @@ button:disabled {
   background: #fff0ee;
 }
 
+.react-flow__node.graph-node--neighbor {
+  opacity: 0.45;
+  filter: grayscale(0.5);
+}
+
 .react-flow__edge-text {
   font-size: 10px;
   font-weight: 700;
@@ -648,6 +876,10 @@ button:disabled {
 .react-flow__edge.graph-edge path {
   stroke: rgba(148, 163, 184, 0.64);
   stroke-width: 1.8;
+}
+
+.react-flow__edge.graph-edge--layer path {
+  stroke: rgba(251, 146, 60, 0.58);
 }
 
 .react-flow__edge.graph-edge--calls path {
@@ -713,11 +945,29 @@ button:disabled {
     bottom: 12px;
   }
 
-  .floating-chat {
-    width: min(360px, calc(100vw - 24px));
+  .graph-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr min(45vh, 360px);
   }
 
-  .floating-chat--collapsed {
-    width: 178px;
+  .graph-layout--chat-collapsed {
+    grid-template-rows: 1fr 44px;
+  }
+
+  .graph-chat-dock {
+    border-left: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .graph-chat-dock__rail {
+    flex-direction: row;
+    justify-content: center;
+    gap: 10px;
+    padding-top: 0;
+    border-left: 0;
+  }
+
+  .graph-chat-dock__rail-label {
+    writing-mode: horizontal-tb;
   }
 }

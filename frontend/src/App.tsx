@@ -1,8 +1,6 @@
 import {
   type FormEvent,
-  type PointerEvent as ReactPointerEvent,
   type ReactNode,
-  type RefObject,
   useEffect,
   useMemo,
   useRef,
@@ -11,6 +9,7 @@ import {
 import ReactFlow, {
   Background,
   Controls,
+  MarkerType,
   MiniMap,
   Panel,
   Position,
@@ -19,7 +18,6 @@ import ReactFlow, {
 } from "reactflow";
 import {
   FolderOpen,
-  GripHorizontal,
   Loader2,
   MessageSquare,
   Network,
@@ -33,6 +31,8 @@ import { askQuestion, indexPath, loadGraph, uploadAndIndex } from "./api";
 import type { ChatMessage, GraphDto, GraphNodeDto } from "./types";
 
 type ViewMode = "chat" | "graph";
+type GraphDisplayMode = "layers" | "uml";
+type GraphClassDetailMode = "compact" | "uml";
 type Point = {
   x: number;
   y: number;
@@ -52,9 +52,28 @@ type UmlEdgeModel = {
   type: string;
   count: number;
 };
+type LayerNodeModel = {
+  id: string;
+  group: string;
+  typeCount: number;
+  attributeCount: number;
+  methodCount: number;
+};
+type LayerEdgeModel = {
+  source: string;
+  target: string;
+  count: number;
+};
 
 const UML_CONTAINER_KINDS = new Set(["class", "object", "trait", "enum"]);
 const UML_EDGE_TYPES = new Set(["CALLS", "EXTENDS", "INSTANTIATES", "USES"]);
+const UML_EDGE_TYPE_OPTIONS = [
+  { type: "CALLS", label: "Calls", color: "rgba(251, 146, 60, 0.82)" },
+  { type: "USES", label: "Uses", color: "rgba(148, 163, 184, 0.74)" },
+  { type: "EXTENDS", label: "Extends", color: "rgba(74, 222, 128, 0.7)" },
+  { type: "INSTANTIATES", label: "Creates", color: "rgba(74, 222, 128, 0.7)" },
+];
+const DEFAULT_VISIBLE_EDGE_TYPES = new Set(["CALLS", "USES"]);
 
 const initialMessages: ChatMessage[] = [
   {
@@ -74,10 +93,8 @@ function App() {
   const [isIndexing, setIsIndexing] = useState(false);
   const [isGraphLoading, setIsGraphLoading] = useState(false);
   const [isGraphChatCollapsed, setIsGraphChatCollapsed] = useState(false);
-  const [graphChatPosition, setGraphChatPosition] = useState<Point>({ x: 18, y: 18 });
   const [status, setStatus] = useState("Bereit");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const graphLayoutRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (fileInputRef.current) {
@@ -232,14 +249,19 @@ function App() {
           />
         </section>
       ) : (
-        <section ref={graphLayoutRef} className="graph-layout">
-          <GraphCanvas graph={graph} />
-          <GraphChatWindow
+        <section
+          className={
+            isGraphChatCollapsed
+              ? "graph-layout graph-layout--chat-collapsed"
+              : "graph-layout"
+          }
+        >
+          <div className="graph-canvas-wrap">
+            <GraphCanvas graph={graph} />
+          </div>
+          <GraphChatDock
             collapsed={isGraphChatCollapsed}
-            position={graphChatPosition}
             setCollapsed={setIsGraphChatCollapsed}
-            setPosition={setGraphChatPosition}
-            boundsRef={graphLayoutRef}
           >
             <ChatPanel
               messages={messages}
@@ -249,7 +271,7 @@ function App() {
               onAsk={handleAsk}
               compact
             />
-          </GraphChatWindow>
+          </GraphChatDock>
         </section>
       )}
 
@@ -264,102 +286,46 @@ function App() {
   );
 }
 
-function GraphChatWindow(props: {
+function GraphChatDock(props: {
   collapsed: boolean;
-  position: Point;
   setCollapsed: (value: boolean) => void;
-  setPosition: (value: Point) => void;
-  boundsRef: RefObject<HTMLElement>;
   children: ReactNode;
 }) {
-  const windowRef = useRef<HTMLDivElement | null>(null);
-  const dragRef = useRef<{
-    pointerId: number;
-    startX: number;
-    startY: number;
-    originX: number;
-    originY: number;
-  } | null>(null);
-
-  function clampPosition(nextPosition: Point): Point {
-    const bounds = props.boundsRef.current;
-    const chatWindow = windowRef.current;
-    const width = chatWindow?.offsetWidth ?? 410;
-    const height = chatWindow?.offsetHeight ?? 520;
-    const boundsWidth = bounds?.clientWidth ?? window.innerWidth;
-    const boundsHeight = bounds?.clientHeight ?? window.innerHeight;
-    const padding = 12;
-
-    return {
-      x: Math.min(Math.max(nextPosition.x, padding), Math.max(padding, boundsWidth - width - padding)),
-      y: Math.min(Math.max(nextPosition.y, padding), Math.max(padding, boundsHeight - height - padding)),
-    };
-  }
-
-  function handleDragStart(event: ReactPointerEvent<HTMLDivElement>) {
-    event.currentTarget.setPointerCapture(event.pointerId);
-    dragRef.current = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      originX: props.position.x,
-      originY: props.position.y,
-    };
-  }
-
-  function handleDragMove(event: ReactPointerEvent<HTMLDivElement>) {
-    const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) {
-      return;
-    }
-
-    props.setPosition(
-      clampPosition({
-        x: drag.originX + event.clientX - drag.startX,
-        y: drag.originY + event.clientY - drag.startY,
-      }),
+  if (props.collapsed) {
+    return (
+      <aside className="graph-chat-dock graph-chat-dock--collapsed">
+        <button
+          className="graph-chat-dock__rail"
+          type="button"
+          title="Chat ausklappen"
+          onClick={() => props.setCollapsed(false)}
+        >
+          <PanelLeftOpen size={18} />
+          <MessageSquare size={18} />
+          <span className="graph-chat-dock__rail-label">Chat</span>
+        </button>
+      </aside>
     );
   }
 
-  function handleDragEnd(event: ReactPointerEvent<HTMLDivElement>) {
-    if (dragRef.current?.pointerId === event.pointerId) {
-      dragRef.current = null;
-    }
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-  }
-
   return (
-    <div
-      ref={windowRef}
-      className={props.collapsed ? "floating-chat floating-chat--collapsed" : "floating-chat"}
-      style={{ transform: `translate(${props.position.x}px, ${props.position.y}px)` }}
-    >
-      <div
-        className="floating-chat__titlebar"
-        onPointerDown={handleDragStart}
-        onPointerMove={handleDragMove}
-        onPointerUp={handleDragEnd}
-        onPointerCancel={handleDragEnd}
-      >
-        <span className="floating-chat__title">
-          <GripHorizontal size={16} />
+    <aside className="graph-chat-dock">
+      <div className="graph-chat-dock__titlebar">
+        <span className="graph-chat-dock__title">
           <MessageSquare size={16} />
           Chat
         </span>
         <button
-          className="floating-chat__collapse"
+          className="graph-chat-dock__collapse"
           type="button"
-          title={props.collapsed ? "Chat ausklappen" : "Chat einklappen"}
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={() => props.setCollapsed(!props.collapsed)}
+          title="Chat einklappen"
+          onClick={() => props.setCollapsed(true)}
         >
-          {props.collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+          <PanelLeftClose size={16} />
         </button>
       </div>
-      {!props.collapsed && props.children}
-    </div>
+      {props.children}
+    </aside>
   );
 }
 
@@ -544,35 +510,130 @@ function renderInlineMarkdown(text: string): ReactNode[] {
 }
 
 function GraphCanvas({ graph }: { graph: GraphDto }) {
+  const [displayMode, setDisplayMode] = useState<GraphDisplayMode>("layers");
+  const [classDetailMode, setClassDetailMode] = useState<GraphClassDetailMode>("compact");
+  const [expandedClassId, setExpandedClassId] = useState<string | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
+  const [activeEdgeTypes, setActiveEdgeTypes] = useState<Set<string>>(
+    () => new Set(DEFAULT_VISIBLE_EDGE_TYPES),
+  );
   const nodeById = useMemo(() => {
     return new Map(graph.nodes.map((node) => [node.id, node]));
   }, [graph.nodes]);
 
   const umlModels = useMemo(() => buildUmlModels(graph.nodes), [graph.nodes]);
 
-  const visibleUmlIds = useMemo(() => {
+  const layerModels = useMemo(() => buildLayerModels(umlModels), [umlModels]);
+
+  const allUmlIds = useMemo(() => {
     return new Set(umlModels.map((node) => node.id));
   }, [umlModels]);
 
-  const umlEdges = useMemo(() => {
-    return buildUmlEdges(graph.edges, nodeById, visibleUmlIds);
-  }, [graph.edges, nodeById, visibleUmlIds]);
+  const allUmlEdges = useMemo(() => {
+    return buildUmlEdges(graph.edges, nodeById, allUmlIds);
+  }, [graph.edges, nodeById, allUmlIds]);
+
+  const filteredUmlEdges = useMemo(() => {
+    return allUmlEdges.filter((edge) => activeEdgeTypes.has(edge.type));
+  }, [activeEdgeTypes, allUmlEdges]);
+
+  const selectedGroupExists = useMemo(() => {
+    return selectedGroup !== null && layerModels.some((layer) => layer.group === selectedGroup);
+  }, [layerModels, selectedGroup]);
+
+  useEffect(() => {
+    if (selectedGroup !== null && !selectedGroupExists) {
+      setSelectedGroup(null);
+      setDisplayMode("layers");
+    }
+  }, [selectedGroup, selectedGroupExists]);
+
+  const neighborIds = useMemo(() => {
+    if (displayMode !== "uml" || selectedGroup === null) {
+      return new Set<string>();
+    }
+    const members = new Set(
+      umlModels.filter((node) => node.group === selectedGroup).map((node) => node.id),
+    );
+    const result = new Set<string>();
+    filteredUmlEdges.forEach((edge) => {
+      if (members.has(edge.source) && !members.has(edge.target)) {
+        result.add(edge.target);
+      }
+      if (members.has(edge.target) && !members.has(edge.source)) {
+        result.add(edge.source);
+      }
+    });
+    return result;
+  }, [displayMode, filteredUmlEdges, selectedGroup, umlModels]);
+
+  const visibleUmlModels = useMemo(() => {
+    if (displayMode !== "uml" || selectedGroup === null) {
+      return umlModels;
+    }
+    return umlModels.filter(
+      (node) => node.group === selectedGroup || neighborIds.has(node.id),
+    );
+  }, [displayMode, neighborIds, selectedGroup, umlModels]);
+
+  const visibleUmlIds = useMemo(() => {
+    return new Set(visibleUmlModels.map((node) => node.id));
+  }, [visibleUmlModels]);
+
+  const visibleUmlEdges = useMemo(() => {
+    return filteredUmlEdges.filter((edge) => visibleUmlIds.has(edge.source) && visibleUmlIds.has(edge.target));
+  }, [filteredUmlEdges, visibleUmlIds]);
+
+  // Die Layer-Uebersicht zeigt bewusst alle Beziehungstypen; der Typ-Filter
+  // wirkt nur in der Klassen-Sicht.
+  const layerEdges = useMemo(() => {
+    return buildLayerEdges(allUmlEdges, umlModels);
+  }, [allUmlEdges, umlModels]);
 
   const nodes = useMemo<Node[]>(() => {
-    return layoutUmlModels(umlModels, umlEdges).map(({ node, position }) => {
-      return {
+    if (displayMode === "layers") {
+      return layoutLayerModels(layerModels).map(({ node, position }) => ({
         id: node.id,
-        data: { label: umlNodeLabel(node) },
+        data: { label: layerNodeLabel(node) },
         position,
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
-        className: `graph-node graph-node--${node.kind.toLowerCase()}`,
+        className: `graph-node graph-node--layer graph-node--layer-${node.group.toLowerCase()}`,
+      }));
+    }
+
+    return layoutUmlModels(visibleUmlModels, visibleUmlEdges, classDetailMode, expandedClassId).map(({ node, position }) => {
+      const isExpanded = classDetailMode === "compact" && node.id === expandedClassId;
+      const neighborClass = neighborIds.has(node.id) && !isExpanded ? " graph-node--neighbor" : "";
+      const detail: GraphClassDetailMode = isExpanded ? "uml" : classDetailMode;
+      const expandedClass = isExpanded ? " graph-node--expanded" : "";
+      return {
+        id: node.id,
+        data: { label: detail === "compact" ? compactUmlNodeLabel(node) : umlNodeLabel(node) },
+        position,
+        sourcePosition: Position.Right,
+        targetPosition: Position.Left,
+        className: `graph-node graph-node--${node.kind.toLowerCase()} graph-node--${detail}${neighborClass}${expandedClass}`,
       };
     });
-  }, [umlModels, umlEdges]);
+  }, [classDetailMode, displayMode, expandedClassId, layerModels, neighborIds, visibleUmlEdges, visibleUmlModels]);
 
   const edges = useMemo<Edge[]>(() => {
-    return umlEdges.map((edge, index) => ({
+    if (displayMode === "layers") {
+      return layerEdges.map((edge, index) => ({
+        id: `${edge.source}-layer-${edge.target}-${index}`,
+        source: edge.source,
+        target: edge.target,
+        label: layerEdgeLabel(edge.count),
+        animated: false,
+        type: "smoothstep",
+        className: "graph-edge graph-edge--layer",
+        markerEnd: { type: MarkerType.ArrowClosed, color: "rgba(251, 146, 60, 0.68)" },
+        style: { strokeWidth: layerEdgeWidth(edge.count), opacity: 0.72 },
+      }));
+    }
+
+    return visibleUmlEdges.map((edge, index) => ({
       id: `${edge.source}-${edge.type}-${edge.target}-${index}`,
       source: edge.source,
       target: edge.target,
@@ -580,15 +641,63 @@ function GraphCanvas({ graph }: { graph: GraphDto }) {
       animated: edge.type === "CALLS",
       type: "smoothstep",
       className: `graph-edge graph-edge--${edge.type.toLowerCase()}`,
+      markerEnd: { type: MarkerType.ArrowClosed, color: "rgba(148, 163, 184, 0.85)" },
       data: { type: edge.type },
     }));
-  }, [umlEdges]);
+  }, [displayMode, layerEdges, visibleUmlEdges]);
+
+  function showLayerDetails(group: string) {
+    setSelectedGroup(group);
+    setClassDetailMode("compact");
+    setExpandedClassId(null);
+    setDisplayMode("uml");
+  }
+
+  function showAllClasses() {
+    setSelectedGroup(null);
+    setClassDetailMode("compact");
+    setExpandedClassId(null);
+    setDisplayMode("uml");
+  }
+
+  function showLayerOverview() {
+    setSelectedGroup(null);
+    setExpandedClassId(null);
+    setDisplayMode("layers");
+  }
+
+  function changeClassDetailMode(mode: GraphClassDetailMode) {
+    setClassDetailMode(mode);
+    setExpandedClassId(null);
+  }
+
+  function toggleEdgeType(edgeType: string) {
+    setActiveEdgeTypes((current) => {
+      const next = new Set(current);
+      if (next.has(edgeType)) {
+        next.delete(edgeType);
+      } else {
+        next.add(edgeType);
+      }
+      return next.size > 0 ? next : current;
+    });
+  }
 
   return (
     <ReactFlow
-      key={`${nodes.length}-${edges.length}`}
+      key={`${displayMode}-${classDetailMode}-${selectedGroup ?? "all"}-${expandedClassId ?? "none"}-${nodes.length}-${edges.length}`}
       nodes={nodes}
       edges={edges}
+      onNodeClick={(_, node) => {
+        if (displayMode === "layers") {
+          showLayerDetails(String(node.id).replace(/^layer:/, ""));
+          return;
+        }
+        if (classDetailMode === "compact") {
+          const id = String(node.id);
+          setExpandedClassId((current) => (current === id ? null : id));
+        }
+      }}
       fitView
       fitViewOptions={{ padding: 0.2 }}
       minZoom={0.15}
@@ -597,9 +706,93 @@ function GraphCanvas({ graph }: { graph: GraphDto }) {
       <Background color="rgba(255, 255, 255, 0.12)" />
       <Controls position="bottom-right" />
       <MiniMap position="top-right" pannable zoomable />
+      {umlModels.length > 0 && (
+        <Panel className="graph-mode-panel" position="top-left">
+          <button
+            className={displayMode === "layers" ? "graph-mode-button graph-mode-button--active" : "graph-mode-button"}
+            type="button"
+            onClick={showLayerOverview}
+          >
+            MVC
+          </button>
+          <button
+            className={
+              displayMode === "uml" && selectedGroup === null
+                ? "graph-mode-button graph-mode-button--active"
+                : "graph-mode-button"
+            }
+            type="button"
+            onClick={showAllClasses}
+          >
+            Klassen
+          </button>
+          {displayMode === "uml" && (
+            <span className="graph-detail-switch" aria-label="Klassendarstellung">
+              <button
+                className={
+                  classDetailMode === "compact"
+                    ? "graph-chip graph-chip--active"
+                    : "graph-chip"
+                }
+                type="button"
+                onClick={() => changeClassDetailMode("compact")}
+              >
+                Kompakt
+              </button>
+              <button
+                className={
+                  classDetailMode === "uml"
+                    ? "graph-chip graph-chip--active"
+                    : "graph-chip"
+                }
+                type="button"
+                onClick={() => changeClassDetailMode("uml")}
+              >
+                UML
+              </button>
+            </span>
+          )}
+          {displayMode === "uml" && (
+            <span className="graph-edge-filter" aria-label="Beziehungstypen">
+              {UML_EDGE_TYPE_OPTIONS.map((option) => (
+                <button
+                  key={option.type}
+                  className={
+                    activeEdgeTypes.has(option.type)
+                      ? "graph-chip graph-chip--active"
+                      : "graph-chip"
+                  }
+                  type="button"
+                  onClick={() => toggleEdgeType(option.type)}
+                >
+                  <span className="graph-chip__dot" style={{ background: option.color }} />
+                  {option.label}
+                </button>
+              ))}
+            </span>
+          )}
+          {selectedGroup && (
+            <span className="graph-breadcrumb">
+              <button
+                className="graph-breadcrumb__link"
+                type="button"
+                onClick={showLayerOverview}
+              >
+                MVC
+              </button>
+              <span className="graph-breadcrumb__sep">›</span>
+              <span className="graph-breadcrumb__current">{selectedGroup}</span>
+            </span>
+          )}
+        </Panel>
+      )}
       {nodes.length > 0 && (
-        <Panel className="graph-summary-panel" position="top-center">
-          {nodes.length} UML-Typen · {edges.length} Beziehungen
+        <Panel className="graph-summary-panel" position="bottom-center">
+          {displayMode === "layers"
+            ? `${nodes.length} Layer - ${edges.length} Beziehungen`
+            : selectedGroup
+              ? `${selectedGroup}: ${nodes.length} UML-Typen - ${edges.length} Beziehungen`
+              : `${nodes.length} UML-Typen - ${edges.length} Beziehungen`}
         </Panel>
       )}
       {nodes.length === 0 && (
@@ -706,11 +899,124 @@ function buildUmlEdges(
   });
 }
 
+function buildLayerModels(models: UmlNodeModel[]): LayerNodeModel[] {
+  const layerByGroup = new Map<string, LayerNodeModel>();
+
+  models.forEach((model) => {
+    const layer = layerByGroup.get(model.group) ?? {
+      id: `layer:${model.group}`,
+      group: model.group,
+      typeCount: 0,
+      attributeCount: 0,
+      methodCount: 0,
+    };
+    layer.typeCount += 1;
+    layer.attributeCount += model.attributes.length;
+    layer.methodCount += model.methods.length;
+    layerByGroup.set(model.group, layer);
+  });
+
+  return Array.from(layerByGroup.values()).sort((left, right) => {
+    const byRank = umlGroupRank(left.group) - umlGroupRank(right.group);
+    if (byRank !== 0) {
+      return byRank;
+    }
+    return left.group.localeCompare(right.group);
+  });
+}
+
+function buildLayerEdges(edges: UmlEdgeModel[], models: UmlNodeModel[]): LayerEdgeModel[] {
+  const groupByNodeId = new Map(models.map((model) => [model.id, model.group]));
+  const edgeByKey = new Map<string, LayerEdgeModel>();
+
+  edges.forEach((edge) => {
+    const sourceGroup = groupByNodeId.get(edge.source);
+    const targetGroup = groupByNodeId.get(edge.target);
+    if (!sourceGroup || !targetGroup || sourceGroup === targetGroup) {
+      return;
+    }
+
+    const source = `layer:${sourceGroup}`;
+    const target = `layer:${targetGroup}`;
+    const key = `${source}->${target}`;
+    const existing = edgeByKey.get(key);
+    if (existing) {
+      existing.count += edge.count;
+      return;
+    }
+    edgeByKey.set(key, { source, target, count: edge.count });
+  });
+
+  return Array.from(edgeByKey.values()).sort((left, right) => {
+    const leftSource = left.source.replace(/^layer:/, "");
+    const rightSource = right.source.replace(/^layer:/, "");
+    const bySource = umlGroupRank(leftSource) - umlGroupRank(rightSource);
+    if (bySource !== 0) {
+      return bySource;
+    }
+    const leftTarget = left.target.replace(/^layer:/, "");
+    const rightTarget = right.target.replace(/^layer:/, "");
+    const byTarget = umlGroupRank(leftTarget) - umlGroupRank(rightTarget);
+    if (byTarget !== 0) {
+      return byTarget;
+    }
+    return left.target.localeCompare(right.target);
+  });
+}
+
+// Architektonisch sinnvolle Anordnung: MVC-Fluss View -> Controller -> Model
+// auf der mittleren Zeile, Stuetzschichten darueber/darunter.
+const LAYER_LAYOUT: Record<string, Point> = {
+  View: { x: 0, y: 0 },
+  Controller: { x: 1, y: 0 },
+  Model: { x: 2, y: 0 },
+  IO: { x: 2, y: 1 },
+  Util: { x: 1, y: 1 },
+  Core: { x: 1, y: -1 },
+  Tests: { x: 3, y: -1 },
+};
+
+function layoutLayerModels(
+  models: LayerNodeModel[],
+): Array<{ node: LayerNodeModel; position: Point }> {
+  const columnWidth = 440;
+  const rowHeight = 240;
+  const fallbackRowOffset = 86;
+
+  return models.map((node, index) => {
+    const cell = LAYER_LAYOUT[node.group];
+    const position = cell
+      ? { x: cell.x * columnWidth, y: cell.y * rowHeight }
+      : { x: index * columnWidth, y: index % 2 === 0 ? 0 : fallbackRowOffset };
+    return { node, position };
+  });
+}
+
+function layerNodeLabel(node: LayerNodeModel) {
+  return (
+    <div className="layer-node">
+      <span className="graph-node__kind">Layer</span>
+      <strong>{node.group}</strong>
+      <div className="layer-node__stats">
+        <span>{node.typeCount} Typen</span>
+        <span>{node.attributeCount} Felder</span>
+        <span>{node.methodCount} Methoden</span>
+      </div>
+    </div>
+  );
+}
+
 function layoutUmlModels(
   models: UmlNodeModel[],
   edges: UmlEdgeModel[],
+  detailMode: GraphClassDetailMode,
+  expandedId: string | null,
 ): Array<{ node: UmlNodeModel; position: Point }> {
-  const modelById = new Map(models.map((model) => [model.id, model]));
+  // Effektiver Darstellungsmodus eines Knotens: ein im Kompaktmodus
+  // aufgeklappter Knoten wird wie ein voller UML-Knoten behandelt.
+  const detailOf = (id: string): GraphClassDetailMode =>
+    detailMode === "compact" && id === expandedId ? "uml" : detailMode;
+  const hasExpanded = detailMode === "compact" && expandedId !== null && models.some((model) => model.id === expandedId);
   const connectedIds = new Set(edges.flatMap((edge) => [edge.source, edge.target]));
   const groups = new Map<string, UmlNodeModel[]>();
 
@@ -729,8 +1035,10 @@ function layoutUmlModels(
   });
 
   const positions = new Map<string, Point>();
-  const columnWidth = 380;
-  const rowGap = 34;
+  // Kompakte Spalten sind eng; ein aufgeklappter (voller) Knoten braucht mehr
+  // Breite, daher die Spalte nur dann aufweiten.
+  const columnWidth = detailMode === "compact" ? (hasExpanded ? 300 : 260) : 380;
+  const rowGap = detailMode === "compact" ? 22 : 34;
 
   orderedGroups.forEach(([group, groupModels], column) => {
     const incomingById = incomingWeightById(groupModels, edges);
@@ -761,7 +1069,7 @@ function layoutUmlModels(
         x: column * columnWidth,
         y,
       });
-      y += estimateUmlNodeHeight(model) + rowGap;
+      y += estimateUmlNodeHeight(model, detailOf(model.id)) + rowGap;
     });
 
     if (group && sortedModels.length > 0) {
@@ -807,7 +1115,23 @@ function umlNodeLabel(node: UmlNodeModel) {
   );
 }
 
-function estimateUmlNodeHeight(node: UmlNodeModel): number {
+function compactUmlNodeLabel(node: UmlNodeModel) {
+  return (
+    <div className="compact-node">
+      <span className="graph-node__kind">{kindLabel(node.kind)}</span>
+      <strong>{node.title}</strong>
+      {node.context && <small>{node.context}</small>}
+      <span className="compact-node__meta">
+        {node.attributes.length} Felder · {node.methods.length} Methoden
+      </span>
+    </div>
+  );
+}
+
+function estimateUmlNodeHeight(node: UmlNodeModel, detailMode: GraphClassDetailMode): number {
+  if (detailMode === "compact") {
+    return node.context ? 104 : 88;
+  }
   const headerHeight = node.context ? 76 : 58;
   const attributeRows = Math.max(1, node.attributes.length);
   const methodRows = Math.max(1, node.methods.length);
@@ -1024,6 +1348,14 @@ function edgeLabel(type: string, count: number): string {
   };
   const label = labels[type] ?? type.toLowerCase();
   return count > 1 ? `${label} (${count})` : label;
+}
+
+function layerEdgeLabel(count: number): string {
+  return `${count}x`;
+}
+
+function layerEdgeWidth(count: number): number {
+  return Math.min(1.4 + Math.log2(count + 1) * 0.9, 5.5);
 }
 
 function compactPath(path: string): string {
