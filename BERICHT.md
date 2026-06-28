@@ -28,19 +28,19 @@ wie Klassen, Funktionen, Dateien und Abhaengigkeiten zusammenhaengen.
 Das Backend ist in Python umgesetzt und stellt Parsing, Graphimport,
 Vektorsuche, RAG-Orchestrierung und HTTP-API bereit.
 
-| Technologie | Version | Verwendung |
-| --- | ---: | --- |
-| Python | lokal ausgefuehrt | Backend-Sprache |
-| FastAPI | 0.115.6 | HTTP-API fuer Frontend, Indexierung, Chat und Graphdaten |
-| Uvicorn | 0.34.0 | lokaler ASGI-Server fuer FastAPI |
-| python-multipart | 0.0.20 | Upload von Projektordnern ueber die API |
-| tree-sitter | 0.25.2 | generischer Parser-Unterbau |
-| tree-sitter-scala | 0.26.0 | Scala-Grammatik fuer Tree-sitter |
-| neo4j Python Driver | 6.2.0 | Verbindung zur Neo4j-Datenbank |
-| chromadb | 1.5.9 | Zugriff auf die ChromaDB-Vektordatenbank |
-| llama-index-core | 0.14.22 | Basis fuer LlamaIndex-Integration |
-| llama-index-embeddings-google-genai | 0.5.1 | Gemini-Embeddings ueber LlamaIndex |
-| google-genai | 2.8.0 | Gemini-Antwortgenerierung |
+| Technologie                         |           Version | Verwendung                                               |
+|-------------------------------------|------------------:|----------------------------------------------------------|
+| Python                              | lokal ausgefuehrt | Backend-Sprache                                          |
+| FastAPI                             |           0.115.6 | HTTP-API fuer Frontend, Indexierung, Chat und Graphdaten |
+| Uvicorn                             |            0.34.0 | lokaler ASGI-Server fuer FastAPI                         |
+| python-multipart                    |            0.0.20 | Upload von Projektordnern ueber die API                  |
+| tree-sitter                         |            0.25.2 | generischer Parser-Unterbau                              |
+| tree-sitter-scala                   |            0.26.0 | Scala-Grammatik fuer Tree-sitter                         |
+| neo4j Python Driver                 |             6.2.0 | Verbindung zur Neo4j-Datenbank                           |
+| chromadb                            |             1.5.9 | Zugriff auf die ChromaDB-Vektordatenbank                 |
+| llama-index-core                    |           0.14.22 | Basis fuer LlamaIndex-Integration                        |
+| llama-index-embeddings-google-genai |             0.5.1 | Gemini-Embeddings ueber LlamaIndex                       |
+| google-genai                        |             2.8.0 | Gemini-Antwortgenerierung                                |
 
 Die Python-Abhaengigkeiten sind in `requirements.txt` fest gepinnt. Das ist
 wichtig, damit die Entwicklungsumgebung reproduzierbar bleibt und sich
@@ -52,17 +52,17 @@ Updates veraendern.
 Das Frontend ist eine React-Anwendung mit Vite. Es bietet eine Chat-Ansicht,
 Indexierungsfunktionen und eine interaktive Graphvisualisierung.
 
-| Technologie | Version | Verwendung |
-| --- | ---: | --- |
-| React | 18.3.1 | UI-Framework |
-| React DOM | 18.3.1 | Rendering der React-Anwendung |
-| Vite | 8.0.16 | Entwicklungsserver und Build-System |
-| TypeScript | 5.7.2 | typisierte Frontend-Entwicklung |
-| React Flow | 11.11.4 | interaktive Graphvisualisierung |
-| lucide-react | 0.468.0 | Icons fuer UI-Aktionen |
-| Tailwind CSS | 3.4.17 | CSS-Utility-Basis |
-| PostCSS | 8.4.49 | CSS-Verarbeitung |
-| Autoprefixer | 10.4.20 | Browser-kompatible CSS-Prefixes |
+| Technologie  | Version | Verwendung                          |
+|--------------|--------:|-------------------------------------|
+| React        |  18.3.1 | UI-Framework                        |
+| React DOM    |  18.3.1 | Rendering der React-Anwendung       |
+| Vite         |  8.0.16 | Entwicklungsserver und Build-System |
+| TypeScript   |   5.7.2 | typisierte Frontend-Entwicklung     |
+| React Flow   | 11.11.4 | interaktive Graphvisualisierung     |
+| lucide-react | 0.468.0 | Icons fuer UI-Aktionen              |
+| Tailwind CSS |  3.4.17 | CSS-Utility-Basis                   |
+| PostCSS      |  8.4.49 | CSS-Verarbeitung                    |
+| Autoprefixer | 10.4.20 | Browser-kompatible CSS-Prefixes     |
 
 Auch die Node.js-Abhaengigkeiten sind in `package.json` festgelegt. Fuer einige
 Dev-Dependencies werden aktuell Caret-Versionen verwendet. Fuer maximale
@@ -70,11 +70,11 @@ Reproduzierbarkeit koennten diese ebenfalls exakt gepinnt werden.
 
 ### Infrastruktur
 
-| Technologie | Version | Verwendung |
-| --- | ---: | --- |
-| Docker Compose | lokal | Start externer Dienste |
-| Neo4j Community | 5.26.26-community-ubi10 | persistenter Wissensgraph |
-| ChromaDB Server | 1.5.9 | persistente Vektordatenbank |
+| Technologie     |                 Version | Verwendung                  |
+|-----------------|------------------------:|-----------------------------|
+| Docker Compose  |                   lokal | Start externer Dienste      |
+| Neo4j Community | 5.26.26-community-ubi10 | persistenter Wissensgraph   |
+| ChromaDB Server |                   1.5.9 | persistente Vektordatenbank |
 
 Neo4j wird ueber ein eigenes Dockerfile gestartet. ChromaDB wird direkt als
 Container-Image verwendet. Beide Dienste speichern ihre Daten in lokalen
@@ -85,14 +85,14 @@ Projektverzeichnissen, sodass Indexierungen zwischen Starts erhalten bleiben.
 Das Projekt ist modular aufgebaut und trennt die Hauptverantwortlichkeiten in
 Backend-Module:
 
-| Modul | Aufgabe |
-| --- | --- |
-| `backend/extractor` | Scala-Dateien finden, parsen, AST, Symbole und Relationen extrahieren |
-| `backend/db` | AST-JSON-Daten in Neo4j importieren |
-| `backend/vector` | Code-Chunks bauen, Embeddings erzeugen, ChromaDB befuellen und abfragen |
-| `backend/orchestrator` | semantische Treffer, Graphkontext und LLM-Prompt zusammenfuehren |
-| `backend/api` | FastAPI-Endpunkte fuer Frontend und externe Aufrufe |
-| `frontend/src` | React-Oberflaeche fuer Chat, Indexierung und Graphansicht |
+| Modul                  | Aufgabe                                                                 |
+|------------------------|-------------------------------------------------------------------------|
+| `backend/extractor`    | Scala-Dateien finden, parsen, AST, Symbole und Relationen extrahieren   |
+| `backend/db`           | AST-JSON-Daten in Neo4j importieren                                     |
+| `backend/vector`       | Code-Chunks bauen, Embeddings erzeugen, ChromaDB befuellen und abfragen |
+| `backend/orchestrator` | semantische Treffer, Graphkontext und LLM-Prompt zusammenfuehren        |
+| `backend/api`          | FastAPI-Endpunkte fuer Frontend und externe Aufrufe                     |
+| `frontend/src`         | React-Oberflaeche fuer Chat, Indexierung und Graphansicht               |
 
 Diese Trennung folgt dem MVC-Gedanken:
 
@@ -480,13 +480,13 @@ senkt die Kopplung und macht lokale Tests stabiler.
 
 ## 8. API-Uebersicht
 
-| Endpunkt | Methode | Zweck |
-| --- | --- | --- |
-| `/api/health` | GET | einfacher Healthcheck |
-| `/api/index` | POST | lokales Scala-Projekt ueber Pfad indexieren |
-| `/api/upload-index` | POST | hochgeladene Dateien indexieren |
-| `/api/chat` | POST | RAG-Frage zur indexierten Codebase beantworten |
-| `/api/graph` | GET | Graphdaten fuer die Frontend-Visualisierung laden |
+| Endpunkt            | Methode | Zweck                                             |
+|---------------------|---------|---------------------------------------------------|
+| `/api/health`       | GET     | einfacher Healthcheck                             |
+| `/api/index`        | POST    | lokales Scala-Projekt ueber Pfad indexieren       |
+| `/api/upload-index` | POST    | hochgeladene Dateien indexieren                   |
+| `/api/chat`         | POST    | RAG-Frage zur indexierten Codebase beantworten    |
+| `/api/graph`        | GET     | Graphdaten fuer die Frontend-Visualisierung laden |
 
 Die Kommunikation zwischen Frontend und Backend erfolgt ueber strukturierte
 JSON-Objekte. Uploads verwenden `multipart/form-data`.
@@ -495,11 +495,11 @@ JSON-Objekte. Uploads verwenden `multipart/form-data`.
 
 Das System erzeugt drei Arten abgeleiteter Daten:
 
-| Speicherort | Inhalt |
-| --- | --- |
-| `local-data/ast` | extrahierte AST-JSON-Dateien |
-| Neo4j | Wissensgraph aus Dateien, Symbolen und Relationen |
-| ChromaDB | Code-Chunks, Metadaten und Embeddings |
+| Speicherort      | Inhalt                                            |
+|------------------|---------------------------------------------------|
+| `local-data/ast` | extrahierte AST-JSON-Dateien                      |
+| Neo4j            | Wissensgraph aus Dateien, Symbolen und Relationen |
+| ChromaDB         | Code-Chunks, Metadaten und Embeddings             |
 
 Die urspruengliche Scala-Codebase bleibt unveraendert. Das ist wichtig, weil
 das Projekt als Analysewerkzeug und nicht als Codegenerator oder Refactoring-
